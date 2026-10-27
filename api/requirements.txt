@@ -4,3 +4,9 @@ pydantic-settings
 sqlalchemy
 psycopg[binary]
 redis
+alembic 
+pytest
+PyJWT
+pwdlib[argon2]
+email-validator
+python-multipart
