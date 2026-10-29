@@ -4,3 +4,5 @@ from app.models.user import User, UserRole
 # That is the “import your models there” part of the plan.
 
 from app.models.job import EmploymentType, Job
+
+from app.models.application import Application, ApplicationStatus

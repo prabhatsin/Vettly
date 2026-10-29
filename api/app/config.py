@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 60
-    
+    upload_dir: str = "uploads"
     cors_origins: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")

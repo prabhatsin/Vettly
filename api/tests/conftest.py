@@ -45,3 +45,11 @@ def client(db):
     fastapi_app.dependency_overrides[get_db] = override_get_db
     yield TestClient(fastapi_app)
     fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def temp_upload_dir(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
+    return tmp_path
