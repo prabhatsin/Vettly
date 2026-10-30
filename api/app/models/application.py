@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint, func,Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,7 @@ class Application(Base):
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
     candidate_id: Mapped[uuid.UUID] = mapped_column( UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     resume_path: Mapped[str] = mapped_column(String(500))
+    resume_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(
         Enum(ApplicationStatus, name="application_status"),
         default=ApplicationStatus.submitted,

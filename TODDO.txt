@@ -1,0 +1,8 @@
+# In the authentication make it like production that i.e real mail verification
+
+Demo purpose ke liye , Give a button to navigate without the , signin
+
+
+# Add the real data , tha i.e search any api which populates the data , 
+
+# Try to integrate Voice Mem in this 

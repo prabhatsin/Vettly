@@ -7,7 +7,7 @@ from app.api.deps import require_role
 from app.core.storage import InvalidResume
 from app.db.session import get_db
 from app.models.user import User, UserRole
-from app.schemas.application import ApplicationResponse
+from app.schemas.application import ApplicationResponse,ApplicantResponse
 from app.services.application import (
     AlreadyApplied,
     ApplicationService,
@@ -47,14 +47,21 @@ def my_applications(
     return ApplicationService(db).list_mine(candidate)
 
 
-@router.get("/jobs/{job_id}/applications", response_model=list[ApplicationResponse])
+@router.get("/jobs/{job_id}/applications", response_model=list[ApplicantResponse])
 def job_applications(
     job_id: uuid.UUID,
     employer: User = Depends(require_role(UserRole.employer)),
     db: Session = Depends(get_db),
 ):
     try:
-        return ApplicationService(db).list_for_job(job_id, employer)
+        rows = ApplicationService(db).list_for_job(job_id, employer)
+        return [
+            ApplicantResponse(
+                **ApplicationResponse.model_validate(a).model_dump(),
+                candidate_email=email,
+            )
+            for a, email in rows
+        ]
     except JobNotFound:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     except NotJobOwner:

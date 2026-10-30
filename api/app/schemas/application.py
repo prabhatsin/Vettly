@@ -18,7 +18,9 @@ class ApplicationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-
+class ApplicantResponse(ApplicationResponse):
+    candidate_email: str
+    
 '''
 What it does ?
 =>ApplicationResponse: what the API returns for an application. It reads straight from the Application object (from_attributes=True).

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.application import Application, ApplicationStatus
-
+from app.models.user import User
 
 class ApplicationRepository:
     """All database access for applications: create, get, list by candidate or job."""
@@ -12,9 +12,13 @@ class ApplicationRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, job_id: uuid.UUID, candidate_id: uuid.UUID, resume_path: str) -> Application:
+    def create(self,job_id: uuid.UUID,candidate_id: uuid.UUID,resume_path: str,resume_text: str | None = None,
+    ) -> Application:
         application = Application(
-            job_id=job_id, candidate_id=candidate_id, resume_path=resume_path
+            job_id=job_id,
+            candidate_id=candidate_id,
+            resume_path=resume_path,
+            resume_text=resume_text,
         )
         self.db.add(application)
         self.db.commit()
@@ -40,13 +44,14 @@ class ApplicationRepository:
         )
         return list(self.db.scalars(stmt))
 
-    def list_by_job(self, job_id: uuid.UUID) -> list[Application]:
+    def list_by_job(self, job_id: uuid.UUID) -> list[tuple[Application, str]]:
         stmt = (
-            select(Application)
+            select(Application, User.email)
+            .join(User, User.id == Application.candidate_id)
             .where(Application.job_id == job_id)
             .order_by(Application.created_at.desc())
         )
-        return list(self.db.scalars(stmt))
+        return [(a, email) for a, email in self.db.execute(stmt).all()]
 
     def update_status(self, application: Application, status: ApplicationStatus) -> Application:
         application.status = status

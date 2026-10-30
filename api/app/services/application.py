@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.storage import save_resume
+from app.core.parsing import extract_text
 from app.models.application import Application
 from app.models.user import User
 from app.repositories.application import ApplicationRepository
@@ -46,8 +47,9 @@ class ApplicationService:
             raise AlreadyApplied()
 
         filename = save_resume(resume)
+        text = extract_text(filename)
         try:
-            return self.applications.create(job_id, candidate.id, filename)
+            return self.applications.create(job_id, candidate.id, filename, text)
         except IntegrityError:
             self.db.rollback()
             raise AlreadyApplied()
