@@ -21,6 +21,13 @@ class ApplicationResponse(BaseModel):
 class ApplicantResponse(ApplicationResponse):
     candidate_email: str
     
+
+class InterviewTokenResponse(BaseModel):
+    token: str
+    url: str
+    room: str
+
+
 '''
 What it does ?
 =>ApplicationResponse: what the API returns for an application. It reads straight from the Application object (from_attributes=True).

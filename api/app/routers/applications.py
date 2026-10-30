@@ -7,13 +7,14 @@ from app.api.deps import require_role
 from app.core.storage import InvalidResume
 from app.db.session import get_db
 from app.models.user import User, UserRole
-from app.schemas.application import ApplicationResponse,ApplicantResponse
-from app.services.application import (
-    AlreadyApplied,
-    ApplicationService,
-    JobNotFound,
-    NotJobOwner,
+from app.schemas.application import ApplicationResponse,ApplicantResponse , InterviewTokenResponse
+from app.services.application import (AlreadyApplied,ApplicationService,JobNotFound,
+    NotJobOwner, ApplicationNotFound
 )
+
+from app.config import settings
+from app.core.livekit import create_room_token, room_name_for
+
 
 router = APIRouter(tags=["applications"])
 
@@ -66,3 +67,23 @@ def job_applications(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     except NotJobOwner:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not own this job")
+
+
+
+@router.post(
+    "/applications/{application_id}/interview-token",
+    response_model=InterviewTokenResponse,
+)
+def interview_token(
+    application_id: uuid.UUID,
+    candidate: User = Depends(require_role(UserRole.candidate)),
+    db: Session = Depends(get_db),
+):
+    try:
+        application = ApplicationService(db).get_for_candidate(application_id, candidate)
+    except ApplicationNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
+
+    room = room_name_for(application.id)
+    token = create_room_token(str(candidate.id), candidate.email, room)
+    return InterviewTokenResponse(token=token, url=settings.livekit_url, room=room)

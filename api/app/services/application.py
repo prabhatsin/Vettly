@@ -64,3 +64,16 @@ class ApplicationService:
         if job.employer_id != employer.id:
             raise NotJobOwner()
         return self.applications.list_by_job(job_id)
+
+
+    def get_for_candidate(self, application_id: uuid.UUID, candidate: User) -> Application:
+        '''
+        loads an application by id and returns it only if it belongs to the logged-in candidate, 
+        otherwise it raises ApplicationNotFound, so a candidate can never get a token for someone 
+        else's application.
+        
+        '''
+        application = self.applications.get_by_id(application_id)
+        if application is None or application.candidate_id != candidate.id:
+            raise ApplicationNotFound()
+        return application

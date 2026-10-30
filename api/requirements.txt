@@ -11,3 +11,4 @@ pwdlib[argon2]
 email-validator
 python-multipart
 pypdf
+livekit-api
