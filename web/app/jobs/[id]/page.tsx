@@ -1,13 +1,13 @@
 "use client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Nav from "@/components/Nav";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/auth";
 import type { Job } from "@/lib/types";
 
-export default function JobDetail() {
+function JobDetailContent() {
   const { id } = useParams<{ id: string }>();
   const user = useUser();
   const [job, setJob] = useState<Job | null>(null);
@@ -16,7 +16,7 @@ export default function JobDetail() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !id) return;
     api<Job>(`/jobs/${id}`).then(setJob).catch((e) => setError(e.message));
   }, [user, id]);
 
@@ -69,4 +69,10 @@ export default function JobDetail() {
   );
 }
 
-
+export default function JobDetail() {
+  return (
+    <Suspense fallback={<p className="p-4">Loading...</p>}>
+      <JobDetailContent />
+    </Suspense>
+  );
+}

@@ -6,3 +6,5 @@ from app.models.user import User, UserRole
 from app.models.job import EmploymentType, Job
 
 from app.models.application import Application, ApplicationStatus
+
+from app.models.transcript import TranscriptEntry

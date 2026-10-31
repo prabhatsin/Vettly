@@ -4,6 +4,7 @@ import Nav from "@/components/Nav";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/auth";
 import type { Application, Job } from "@/lib/types";
+import Link from "next/link";
 
 export default function Applications() {
   const user = useUser("candidate");
@@ -29,12 +30,18 @@ export default function Applications() {
         {apps.length === 0 && <p>You haven't applied to anything yet.</p>}
         <ul className="flex flex-col gap-3">
           {apps.map((a) => (
-            <li key={a.id} className="flex justify-between rounded border p-3">
-              <span>{titles[a.job_id] ?? `Job ${a.job_id.slice(0, 8)} (closed)`}</span>
-              <span className="text-sm text-gray-600">
-                {a.status} · {new Date(a.created_at).toLocaleDateString()}
-              </span>
-            </li>
+              <li key={a.id} className="flex items-center justify-between rounded border p-3">
+                <span>{titles[a.job_id] ?? `Job ${a.job_id.slice(0, 8)} (closed)`}</span>
+                <span className="flex items-center gap-4 text-sm text-gray-600">
+                  {a.status} · {new Date(a.created_at).toLocaleDateString()}
+                  <Link
+                    className="rounded bg-black px-3 py-1 text-white"
+                    href={`/interview/${a.id}`}
+                  >
+                    Start interview
+                  </Link>
+                </span>
+              </li>
           ))}
         </ul>
       </main>
