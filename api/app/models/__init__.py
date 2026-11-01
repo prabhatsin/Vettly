@@ -8,3 +8,5 @@ from app.models.job import EmploymentType, Job
 from app.models.application import Application, ApplicationStatus
 
 from app.models.transcript import TranscriptEntry
+
+from app.models.interview_plan import InterviewPlan
