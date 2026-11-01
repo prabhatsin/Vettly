@@ -7,7 +7,7 @@ from app.models.interview_plan import InterviewPlan
 from app.routers.plan import get_plan_generator
 from app.schemas.plan import InterviewPlanData
 from app.services.plan_generator import PlanGenerationFailed
-
+from app.routers.applications import get_plan_prewarm
 PASSWORD = "abc@12345"
 JOB = {
     "title": "Python Developer",
@@ -127,3 +127,19 @@ def test_generation_failure_502_stores_nothing_then_retry_works(client, db, fake
 
     assert get_plan(client, app_id).status_code == 200
     assert len(db.scalars(select(InterviewPlan)).all()) == 1
+
+
+def test_apply_and_token_schedule_plan_pregeneration(client):
+    scheduled = []
+    fastapi_app.dependency_overrides[get_plan_prewarm] = lambda: scheduled.append
+
+    emp = make_user(client, "emp@example.com", "employer")
+    cand = make_user(client, "cand@example.com", "candidate")
+    job_id = client.post("/jobs", json=JOB, headers=emp).json()["id"]
+    app_id = client.post(
+        f"/jobs/{job_id}/apply", files={"resume": PDF}, headers=cand
+    ).json()["id"]
+    assert [str(a) for a in scheduled] == [app_id]
+
+    client.post(f"/applications/{app_id}/interview-token", headers=cand)
+    assert [str(a) for a in scheduled] == [app_id, app_id]

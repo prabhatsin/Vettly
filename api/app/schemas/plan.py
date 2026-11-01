@@ -25,4 +25,8 @@ class InterviewPlanData(BaseModel):
 
 class PlanResponse(BaseModel):
     application_id: uuid.UUID
-    questions: list[PlanQuestion]    
+    job_title: str
+    job_description: str
+    resume_excerpt: str
+    questions: list[PlanQuestion]
+

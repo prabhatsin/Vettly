@@ -15,9 +15,14 @@ from app.services.application import (AlreadyApplied,ApplicationService,JobNotFo
 from app.config import settings
 from app.core.livekit import create_room_token, room_name_for
 
+# added in layer 3 step 2
+from fastapi import BackgroundTasks
+from app.services.plan_prewarm import prewarm_plan
 
 router = APIRouter(tags=["applications"])
 
+def get_plan_prewarm():
+    return prewarm_plan
 
 @router.post(
     "/jobs/{job_id}/apply",
@@ -26,12 +31,14 @@ router = APIRouter(tags=["applications"])
 )
 def apply_to_job(
     job_id: uuid.UUID,
+    background: BackgroundTasks,
     resume: UploadFile = File(...),
     candidate: User = Depends(require_role(UserRole.candidate)),
     db: Session = Depends(get_db),
+    prewarm=Depends(get_plan_prewarm),
 ):
     try:
-        return ApplicationService(db).apply(candidate, job_id, resume)
+        application = ApplicationService(db).apply(candidate, job_id, resume)
     except JobNotFound:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     except AlreadyApplied:
@@ -39,6 +46,8 @@ def apply_to_job(
     except InvalidResume as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
+    background.add_task(prewarm, application.id)
+    return application
 
 @router.get("/applications/mine", response_model=list[ApplicationResponse])
 def my_applications(
@@ -76,14 +85,17 @@ def job_applications(
 )
 def interview_token(
     application_id: uuid.UUID,
+    background: BackgroundTasks,
     candidate: User = Depends(require_role(UserRole.candidate)),
     db: Session = Depends(get_db),
+    prewarm=Depends(get_plan_prewarm),
 ):
     try:
         application = ApplicationService(db).get_for_candidate(application_id, candidate)
     except ApplicationNotFound:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
 
+    background.add_task(prewarm, application.id)
     room = room_name_for(application.id)
     token = create_room_token(str(candidate.id), candidate.email, room)
     return InterviewTokenResponse(token=token, url=settings.livekit_url, room=room)

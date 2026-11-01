@@ -7,6 +7,8 @@ import logging
 import os
 import uuid
 import aiohttp
+from plan_client import application_id_from_room, fetch_plan
+from prompts import build_instructions
 
 logger = logging.getLogger("interviewer")
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -15,31 +17,29 @@ server = AgentServer()
 
 
 class Interviewer(Agent):
-    def __init__(self):
-        super().__init__(
-            instructions=(
-                "You are Iris, a friendly AI interviewer. Keep replies short, "
-                "one or two sentences. Greet the candidate and ask them to "
-                "introduce themselves."
-            )
-        )
+    def __init__(self, instructions: str):
+        super().__init__(instructions=instructions)
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
+
+    application_id = application_id_from_room(ctx.job.room.name)
+    plan = await fetch_plan(application_id) if application_id else None
+    logger.info(
+        "plan loaded: %s questions",
+        len(plan["questions"]) if plan else "no",
+    )
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", language="en"),
         llm=google.LLM(model="gemini-3.5-flash"),
         tts=deepgram.TTS(model="aura-2-thalia-en"),
         vad=silero.VAD.load(),
     )
-    await session.start(agent=Interviewer(), room=ctx.room)
-    room_name = ctx.room.name
-    try:
-        application_id = uuid.UUID(room_name.removeprefix("interview-"))
-    except ValueError:
-        application_id = None
+    await session.start(agent=Interviewer(build_instructions(plan)), room=ctx.room)
+
 
     async def save_transcript():
+
         if application_id is None:
             return
         entries = []
@@ -66,7 +66,7 @@ async def entrypoint(ctx: JobContext):
             logger.exception("could not save transcript")
 
     ctx.add_shutdown_callback(save_transcript)
-    await session.generate_reply(instructions="Greet the candidate and ask them to introduce themselves.")
+    await session.generate_reply(instructions="Greet the candidate in one short sentence and ask them to briefly introduce themselves.")
 
 
 if __name__ == "__main__":

@@ -28,9 +28,15 @@ def get_or_create_plan(
     generator: PlanGenerator = Depends(get_plan_generator),
 ):
     try:
-        row = PlanService(db, generator).get_or_create(application_id)
+        ctx = PlanService(db, generator).get_or_create(application_id)
     except ApplicationNotFound:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
     except PlanGenerationFailed:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not generate a plan")
-    return PlanResponse(application_id=row.application_id, questions=row.plan["questions"])
+    return PlanResponse(
+        application_id=ctx.plan.application_id,
+        job_title=ctx.job_title,
+        job_description=ctx.job_description,
+        resume_excerpt=ctx.resume_excerpt,
+        questions=ctx.plan.plan["questions"],
+    )

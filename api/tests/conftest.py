@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from app.config import ENV_FILE
 from app.db.base import Base
 import app.models  # noqa: F401
+from app.routers.applications import get_plan_prewarm
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or dotenv_values(ENV_FILE)["TEST_DATABASE_URL"]
 
@@ -43,6 +44,8 @@ def client(db):
         yield db
 
     fastapi_app.dependency_overrides[get_db] = override_get_db
+    fastapi_app.dependency_overrides[get_plan_prewarm] = lambda: (lambda application_id: None)
+    
     yield TestClient(fastapi_app)
     fastapi_app.dependency_overrides.clear()
 
