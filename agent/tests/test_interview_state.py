@@ -162,3 +162,50 @@ async def test_missing_state_returns_minus_two(client):
     state = make(client, app_id="nobody")
     assert await state.begin_question() == -2
     assert await state.record_note("x") == -2
+
+async def test_try_followup_respects_cap(client):
+    state = make(client)
+    await state.load_or_create()
+    await state.begin_question()
+    assert await state.try_followup(1) == 1
+    assert await state.try_followup(1) == -1
+
+
+async def test_try_followup_without_open_question(client):
+    state = make(client)
+    await state.load_or_create()
+    assert await state.try_followup(1) == -4
+
+
+async def test_followup_count_resets_after_note(client):
+    state = make(client)
+    await state.load_or_create()
+    await state.begin_question()
+    await state.try_followup(1)
+    await state.record_note("first answer note")
+    await state.begin_question()
+    assert await state.try_followup(1) == 1
+
+
+async def test_tick_accumulates_connected_time(client):
+    state = make(client)
+    await state.load_or_create()
+    assert await state.tick(5) == 5.0
+    assert await state.tick(2.5) == 7.5
+    assert (await state.snapshot()).active_seconds == 7.5
+
+
+async def test_tick_stops_after_end_or_without_state(client):
+    state = make(client)
+    await state.load_or_create()
+    await state.end()
+    assert await state.tick(5) is None
+    assert await make(client, app_id="nobody").tick(5) is None
+
+
+async def test_set_wrapup_flag(client):
+    state = make(client)
+    await state.load_or_create()
+    assert (await state.snapshot()).wrapup is False
+    await state.set_wrapup()
+    assert (await state.snapshot()).wrapup is True

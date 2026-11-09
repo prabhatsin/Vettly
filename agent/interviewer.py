@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -5,11 +6,19 @@ from pathlib import Path
 import aiohttp
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
+from livekit.agents import (
+    Agent,
+    AgentServer,
+    AgentSession,
+    JobContext,
+    TurnHandlingOptions,
+    cli,
+)
 from livekit.plugins import deepgram, google, silero
 
 from interview_state import InterviewState
-from interview_tools import InterviewTools, build_tools
+from interview_timer import close_when_quiet, run_timer
+from interview_tools import LIMIT_SECONDS, WRAPUP_SECONDS, InterviewTools, build_tools
 from plan_client import application_id_from_room, fetch_plan
 from prompts import build_instructions
 
@@ -46,11 +55,11 @@ async def entrypoint(ctx: JobContext):
             state = InterviewState(redis_client, application_id, len(plan["questions"]))
             snap = await state.load_or_create()
             logger.info(
-                "state: question %d/%d, followups %d, elapsed %ds, status %s",
+                "state: question %d/%d, followups %d, active %ds, status %s",
                 min(snap.current_index + 1, snap.total_questions),
                 snap.total_questions,
                 snap.followups_used,
-                snap.elapsed_seconds,
+                snap.active_seconds,
                 snap.status,
             )
         except Exception:
@@ -64,9 +73,20 @@ async def entrypoint(ctx: JobContext):
 
     ctx.add_shutdown_callback(close_redis)
 
+    background: set[asyncio.Task] = set()
+
+    def spawn(coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        background.add(task)
+        task.add_done_callback(background.discard)
+        return task
+
+    def on_closed():
+        spawn(close_when_quiet(session))
+
     if state:
-        tools = build_tools(InterviewTools(state, plan["questions"]))
-        agent = Interviewer(build_instructions(plan, use_tools=True), tools)
+        logic = InterviewTools(state, plan["questions"], on_closed=on_closed)
+        agent = Interviewer(build_instructions(plan, use_tools=True), build_tools(logic))
         logger.info("interviewer mode: tools")
     else:
         agent = Interviewer(build_instructions(plan))
@@ -77,8 +97,20 @@ async def entrypoint(ctx: JobContext):
         llm=google.LLM(model="gemini-3.5-flash"),
         tts=deepgram.TTS(model="aura-2-thalia-en"),
         vad=silero.VAD.load(),
+        turn_handling=TurnHandlingOptions(
+            endpointing={"mode": "fixed", "min_delay": 0.9, "max_delay": 3.5},
+        ),
     )
     await session.start(agent=agent, room=ctx.room)
+
+    if state:
+        spawn(run_timer(state, session, LIMIT_SECONDS, WRAPUP_SECONDS))
+
+    async def stop_background():
+        for task in list(background):
+            task.cancel()
+
+    ctx.add_shutdown_callback(stop_background)
 
     async def save_transcript():
         if application_id is None:
