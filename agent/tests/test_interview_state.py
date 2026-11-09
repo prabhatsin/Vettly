@@ -100,3 +100,65 @@ async def test_concurrent_advances_respect_bound(client):
 
 async def test_snapshot_missing_returns_none(client):
     assert await make(client, app_id="nobody").snapshot() is None
+
+
+async def test_begin_question_is_idempotent(client):
+    state = make(client)
+    await state.load_or_create()
+    assert await state.begin_question() == 0
+    assert await state.begin_question() == 0
+    assert (await state.snapshot()).awaiting_answer is True
+
+
+async def test_record_note_stores_advances_and_clears_flag(client):
+    state = make(client)
+    await state.load_or_create()
+    await state.begin_question()
+    assert await state.record_note("solid on asyncio") == 0
+
+    snap = await state.snapshot()
+    assert snap.current_index == 1
+    assert snap.awaiting_answer is False
+    assert await state.notes() == {0: "solid on asyncio"}
+    assert await state.begin_question() == 1
+
+
+async def test_record_note_twice_records_once(client):
+    state = make(client)
+    await state.load_or_create()
+    await state.begin_question()
+    await state.record_note("first note")
+    assert await state.record_note("second note") == -1
+
+    assert await state.notes() == {0: "first note"}
+    assert (await state.snapshot()).current_index == 1
+
+
+async def test_record_note_without_question_asked_does_nothing(client):
+    state = make(client)
+    await state.load_or_create()
+    assert await state.record_note("orphan") == -1
+    assert (await state.snapshot()).current_index == 0
+    assert await state.notes() == {}
+
+
+async def test_begin_after_last_question_reports_done(client):
+    state = make(client, total=1)
+    await state.load_or_create()
+    await state.begin_question()
+    await state.record_note("only one")
+    assert await state.begin_question() == -1
+
+
+async def test_tools_refuse_after_end(client):
+    state = make(client)
+    await state.load_or_create()
+    await state.end()
+    assert await state.begin_question() == -3
+    assert await state.record_note("late") == -3
+
+
+async def test_missing_state_returns_minus_two(client):
+    state = make(client, app_id="nobody")
+    assert await state.begin_question() == -2
+    assert await state.record_note("x") == -2
