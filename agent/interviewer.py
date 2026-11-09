@@ -10,6 +10,10 @@ import aiohttp
 from plan_client import application_id_from_room, fetch_plan
 from prompts import build_instructions
 
+import redis.asyncio as aioredis
+from interview_state import InterviewState
+
+
 logger = logging.getLogger("interviewer")
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -29,6 +33,35 @@ async def entrypoint(ctx: JobContext):
         "plan loaded: %s questions",
         len(plan["questions"]) if plan else "no",
     )
+    state = None
+    redis_client = None
+    if plan and application_id:
+        try:
+            redis_client = aioredis.Redis.from_url(
+                os.environ["REDIS_URL"],
+                decode_responses=True,
+                socket_connect_timeout=2,
+            )
+            state = InterviewState(redis_client, application_id, len(plan["questions"]))
+            snap = await state.load_or_create()
+            logger.info(
+                "state: question %d/%d, followups %d, elapsed %ds, status %s",
+                min(snap.current_index + 1, snap.total_questions),
+                snap.total_questions,
+                snap.followups_used,
+                snap.elapsed_seconds,
+                snap.status,
+            )
+        except Exception:
+            logger.exception("could not load interview state; continuing without it")
+            state = None
+
+    async def close_redis():
+        if redis_client:
+            await redis_client.aclose()
+
+    ctx.add_shutdown_callback(close_redis)
+
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", language="en"),
         llm=google.LLM(model="gemini-3.5-flash"),
