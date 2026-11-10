@@ -13,3 +13,4 @@ from app.models.interview_plan import InterviewPlan
 
 from app.models.rubric import Rubric
 from app.models.report import InterviewReport
+from app.models.match import CandidateMatch

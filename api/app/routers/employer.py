@@ -13,19 +13,28 @@ from app.schemas.employer import (
     ReportOut,
     RubricIn,
     RubricOut,
+    MatchRow,
+    MustHavesIn
 )
 from app.schemas.scoring import Report
 from app.services.employer import EmployerService, NotFound
 from app.services.scoring_queue import ScoringQueue
+
+from app.services.embedding import GeminiEmbedder
+from app.services.matching import MatchingService
+
 
 logger = logging.getLogger("employer")
 router = APIRouter(prefix="/employer", tags=["employer"])
 employer_only = require_role(UserRole.employer)
 
 
+
 def get_scoring_enqueue():
     return ScoringQueue().enqueue
 
+def get_embedder():
+    return GeminiEmbedder()
 
 def not_found() -> HTTPException:
     return HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
@@ -104,3 +113,39 @@ def put_rubric(
         return EmployerService(db).set_rubric(job_id, user, data.criteria)
     except NotFound:
         raise not_found()
+
+#-------------------------------------------------------------------
+
+@router.get("/jobs/{job_id}/matches", response_model=list[MatchRow])
+def matches(job_id: uuid.UUID, user: User = Depends(employer_only), db: Session = Depends(get_db)):
+    try:
+        return MatchingService(db).ranked(job_id, user)
+    except NotFound:
+        raise not_found()
+
+
+@router.post("/jobs/{job_id}/matches/recompute", response_model=list[MatchRow])
+def recompute_matches(
+    job_id: uuid.UUID,
+    user: User = Depends(employer_only),
+    db: Session = Depends(get_db),
+    embed=Depends(get_embedder),
+):
+    try:
+        return MatchingService(db, embed).recompute(job_id, user)
+    except NotFound:
+        raise not_found()
+
+
+@router.put("/jobs/{job_id}/must-haves", response_model=MustHavesIn)
+def put_must_haves(
+    job_id: uuid.UUID,
+    data: MustHavesIn,
+    user: User = Depends(employer_only),
+    db: Session = Depends(get_db),
+):
+    try:
+        return MustHavesIn(must_haves=MatchingService(db).set_must_haves(job_id, user, data.must_haves))
+    except NotFound:
+        raise not_found()
+

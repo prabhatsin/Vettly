@@ -58,3 +58,7 @@ class ApplicationRepository:
         self.db.commit()
         self.db.refresh(application)
         return application
+
+    def set_resume_embedding(self, application: Application, vector: list[float]) -> None:
+        application.resume_embedding = vector
+        self.db.commit()

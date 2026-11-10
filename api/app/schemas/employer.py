@@ -58,3 +58,28 @@ class RubricOut(BaseModel):
     job_id: uuid.UUID
     is_default: bool
     criteria: list[Criterion]
+
+
+class MatchRow(BaseModel):
+    application_id: uuid.UUID
+    candidate_email: str
+    match_score: float
+    interview_component: float
+    similarity: float | None
+    passed_filters: bool
+    reasons: list[str]
+    computed_at: datetime
+
+
+class MustHavesIn(BaseModel):
+    must_haves: list[str] = Field(max_length=15)
+
+    @field_validator("must_haves")
+    @classmethod
+    def clean(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        for term in (t.strip() for t in v):
+            if term and term.lower() not in {o.lower() for o in out}:
+                out.append(term)
+        return out
+

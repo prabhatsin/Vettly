@@ -56,3 +56,10 @@ class JobRepository:
         self.db.refresh(job)
         return job
 
+    def set_must_haves(self, job, terms: list[str]):
+        job.must_haves = terms
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
+    

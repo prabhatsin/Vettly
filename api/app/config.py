@@ -28,6 +28,10 @@ class Settings(BaseSettings):
 
     scoring_model: str | None = None #! No -Scoring Model ??
 
+    embedding_model: str = "gemini-embedding-001"
+    match_interview_weight: float = 0.6
+    match_similarity_weight: float = 0.4
+
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
     # extra="ignore": your .env also holds POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB, which this 
     # class doesn’t declare. Without this line, pydantic raises an “extra inputs not permitted” error.
