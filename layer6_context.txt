@@ -1,0 +1,1929 @@
+===== api/app/models/application.py
+import enum
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint, func,Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class ApplicationStatus(str, enum.Enum):
+    submitted = "submitted"
+    interviewed = "interviewed"
+    shortlisted = "shortlisted"
+    rejected = "rejected"
+    hired = "hired"
+
+
+class Application(Base):
+    __tablename__ = "applications"
+    __table_args__ = ( UniqueConstraint("job_id", "candidate_id", name="uq_application_job_candidate"),)
+
+    id: Mapped[uuid.UUID] = mapped_column( UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    candidate_id: Mapped[uuid.UUID] = mapped_column( UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    resume_path: Mapped[str] = mapped_column(String(500))
+    resume_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[ApplicationStatus] = mapped_column(
+        Enum(ApplicationStatus, name="application_status"),
+        default=ApplicationStatus.submitted,
+        server_default="submitted",
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column( DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+===== api/app/models/__init__.py
+from app.models.user import User, UserRole
+
+# This makes sure the model is imported whenever app.models is, so Alembic’s autogenerate can see it. 
+# That is the “import your models there” part of the plan.
+
+from app.models.job import EmploymentType, Job
+
+from app.models.application import Application, ApplicationStatus
+
+from app.models.transcript import TranscriptEntry
+
+from app.models.interview_plan import InterviewPlan
+
+from app.models.rubric import Rubric
+from app.models.report import InterviewReport===== api/app/models/interview_plan.py
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class InterviewPlan(Base):
+    __tablename__ = "interview_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    plan: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+===== api/app/models/job.py
+import enum
+import uuid
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class EmploymentType(str, enum.Enum):
+    full_time = "full_time"
+    part_time = "part_time"
+    contract = "contract"
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column( UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employer_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True),ForeignKey("users.id", ondelete="CASCADE"),index=True,)
+    #CASCADE means deleting a user removes their jobs at the database level.
+    #index=True on employer_id: “show me this employer’s jobs” will be a frequent query, so it gets an index.
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    location: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    employment_type: Mapped[EmploymentType] = mapped_column(Enum(EmploymentType, name="employment_type"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column( DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+===== api/app/models/report.py
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class InterviewReport(Base):
+    """One scoring result per application. status: pending, done or failed."""
+
+    __tablename__ = "interview_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    overall_score: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    recommendation: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    report: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    rubric: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # criteria used
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+===== api/app/models/rubric.py
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class Rubric(Base):
+    """A job's scoring criteria. No row means the default rubric is used."""
+
+    __tablename__ = "rubrics"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    criteria: Mapped[list] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+===== api/app/models/transcript.py
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class TranscriptEntry(Base):
+    __tablename__ = "transcript_entries"
+    __table_args__ = (
+        UniqueConstraint("application_id", "seq", name="uq_transcript_application_seq"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(20))
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )===== api/app/models/user.py
+import enum
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, Enum, String, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+# enum.Enum stands for enumeration. It defines a fixed set of named values, such as candidate and employer, preventing undefined choices.
+class UserRole(str, enum.Enum):
+    candidate = "candidate"
+    employer = "employer"
+#Remember: enum.Enum defines the allowed choices; str makes enum members string-compatible.
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole, name="user_role"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+===== api/app/db/base.py
+from sqlalchemy.orm import DeclarativeBase
+
+#The parent class every model will inherit from. It collects all table definitions in Base.metadata, 
+#which Alembic reads later.
+
+class Base(DeclarativeBase):
+    pass
+
+===== api/app/api/deps.py
+import uuid
+
+import jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
+
+from app.core.security import decode_access_token
+from app.db.session import get_db
+from app.models.user import User, UserRole
+from app.repositories.user import UserRepository
+
+bearer_scheme = HTTPBearer()
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = decode_access_token(credentials.credentials)
+        user_id = uuid.UUID(payload["sub"])
+    except (jwt.PyJWTError, KeyError, ValueError):
+        raise unauthorized
+
+    user = UserRepository(db).get_by_id(user_id)
+    if user is None:
+        raise unauthorized
+    return user
+
+
+def require_role(*roles: UserRole):
+    def checker(user: User = Depends(get_current_user)) -> User:
+        if user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not allowed for your role",
+            )
+        return user
+
+    return checker===== api/app/config.py
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+# config.py is at api/app/config.py, so parents[2] is the repo root. This finds your root .env no matter
+#  which folder you run uvicorn from.
+
+class Settings(BaseSettings):
+    database_url: str
+    redis_url: str
+    
+    jwt_secret: str
+    jwt_algorithm: str = "HS256"
+    access_token_minutes: int = 60
+    upload_dir: str = "uploads"
+    cors_origins: list[str] = ["http://localhost:3000"]
+
+
+    livekit_url: str = "ws://localhost:7880"
+    livekit_api_key: str
+    livekit_api_secret: str
+
+    internal_api_key: str
+
+    google_api_key: str
+    plan_model: str = "gemini-3.8-flash"
+
+    scoring_model: str | None = None #! No -Scoring Model ??
+
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
+    # extra="ignore": your .env also holds POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB, which this 
+    # class doesn’t declare. Without this line, pydantic raises an “extra inputs not permitted” error.
+settings = Settings()===== api/app/main.py
+from fastapi import FastAPI
+from app.routers import auth, health, jobs,applications,transcripts,plan,employer
+from fastapi.middleware.cors import CORSMiddleware
+from app.config import settings
+
+app = FastAPI(title="Voice Interview Platform API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(jobs.router)
+app.include_router(applications.router)
+app.include_router(transcripts.router)
+
+app.include_router(plan.router)
+app.include_router(employer.router)===== api/app/worker.py
+"""Scoring worker. Run from the api folder:  python -m app.worker"""
+
+import asyncio
+import logging
+import uuid
+
+from app.db.session import get_db
+from app.repositories.scoring import ReportRepository
+from app.services.scoring_queue import ScoringQueue
+from app.services.scoring_runner import ScoringJob
+import time
+import redis
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logger = logging.getLogger("worker")
+
+
+def process(application_id: str) -> None:
+    """Score one application. Any error is stored on the report instead of crashing."""
+    app_uuid = uuid.UUID(application_id)
+    session_gen = get_db()
+    db = next(session_gen)
+    try:
+        asyncio.run(ScoringJob(db).run(app_uuid))
+    except Exception as exc:
+        logger.exception("scoring failed for %s", application_id)
+        db.rollback()
+        ReportRepository(db).save(app_uuid, status="failed", error=str(exc)[:500])
+    finally:
+        session_gen.close()
+
+
+def main() -> None:
+    queue = ScoringQueue()
+    back = queue.requeue_stale()
+    if back:
+        logger.info("requeued %d unfinished jobs", back)
+    logger.info("worker ready")
+    try:
+        while True:
+
+            try:
+                application_id = queue.reserve(timeout=5)
+            except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError):
+                logger.warning("redis not reachable, retrying")
+                time.sleep(2)
+                continue
+
+            if application_id is None:
+                continue
+            logger.info("scoring %s", application_id)
+            process(application_id)
+            queue.ack(application_id)
+    except KeyboardInterrupt:
+        logger.info("worker stopped")
+
+
+if __name__ == "__main__":
+    main()
+===== api/app/routers/employer.py
+import logging
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.api.deps import require_role
+from app.db.session import get_db
+from app.models.user import User, UserRole
+from app.schemas.employer import (
+    CandidateRow,
+    ReplayOut,
+    ReportOut,
+    RubricIn,
+    RubricOut,
+)
+from app.schemas.scoring import Report
+from app.services.employer import EmployerService, NotFound
+from app.services.scoring_queue import ScoringQueue
+
+logger = logging.getLogger("employer")
+router = APIRouter(prefix="/employer", tags=["employer"])
+employer_only = require_role(UserRole.employer)
+
+
+def get_scoring_enqueue():
+    return ScoringQueue().enqueue
+
+
+def not_found() -> HTTPException:
+    return HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+
+@router.get("/jobs/{job_id}/candidates", response_model=list[CandidateRow])
+def candidates(
+    job_id: uuid.UUID, user: User = Depends(employer_only), db: Session = Depends(get_db)
+):
+    try:
+        return EmployerService(db).candidates(job_id, user)
+    except NotFound:
+        raise not_found()
+
+
+@router.get("/applications/{application_id}/report", response_model=ReportOut)
+def report(
+    application_id: uuid.UUID, user: User = Depends(employer_only), db: Session = Depends(get_db)
+):
+    try:
+        row = EmployerService(db).report(application_id, user)
+    except NotFound:
+        raise not_found()
+    return ReportOut(
+        application_id=row.application_id,
+        status=row.status,
+        error=row.error,
+        report=Report.model_validate(row.report) if row.report else None,
+        updated_at=row.updated_at,
+    )
+
+
+@router.get("/applications/{application_id}/replay", response_model=ReplayOut)
+def replay(
+    application_id: uuid.UUID, user: User = Depends(employer_only), db: Session = Depends(get_db)
+):
+    try:
+        return EmployerService(db).replay(application_id, user)
+    except NotFound:
+        raise not_found()
+
+
+@router.post("/applications/{application_id}/rescore", status_code=status.HTTP_202_ACCEPTED)
+def rescore(
+    application_id: uuid.UUID,
+    user: User = Depends(employer_only),
+    db: Session = Depends(get_db),
+    enqueue=Depends(get_scoring_enqueue),
+):
+    try:
+        EmployerService(db).own_application(application_id, user)
+    except NotFound:
+        raise not_found()
+    enqueue(str(application_id))
+    return {"queued": True}
+
+
+@router.get("/jobs/{job_id}/rubric", response_model=RubricOut)
+def get_rubric(
+    job_id: uuid.UUID, user: User = Depends(employer_only), db: Session = Depends(get_db)
+):
+    try:
+        return EmployerService(db).get_rubric(job_id, user)
+    except NotFound:
+        raise not_found()
+
+
+@router.put("/jobs/{job_id}/rubric", response_model=RubricOut)
+def put_rubric(
+    job_id: uuid.UUID,
+    data: RubricIn,
+    user: User = Depends(employer_only),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EmployerService(db).set_rubric(job_id, user, data.criteria)
+    except NotFound:
+        raise not_found()
+===== api/app/routers/applications.py
+import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy.orm import Session
+
+from app.api.deps import require_role
+from app.core.storage import InvalidResume
+from app.db.session import get_db
+from app.models.user import User, UserRole
+from app.schemas.application import ApplicationResponse,ApplicantResponse , InterviewTokenResponse
+from app.services.application import (AlreadyApplied,ApplicationService,JobNotFound,
+    NotJobOwner, ApplicationNotFound
+)
+
+from app.config import settings
+from app.core.livekit import create_room_token, room_name_for
+
+# added in layer 3 step 2
+from fastapi import BackgroundTasks
+from app.services.plan_prewarm import prewarm_plan
+
+router = APIRouter(tags=["applications"])
+
+def get_plan_prewarm():
+    return prewarm_plan
+
+@router.post(
+    "/jobs/{job_id}/apply",
+    response_model=ApplicationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def apply_to_job(
+    job_id: uuid.UUID,
+    background: BackgroundTasks,
+    resume: UploadFile = File(...),
+    candidate: User = Depends(require_role(UserRole.candidate)),
+    db: Session = Depends(get_db),
+    prewarm=Depends(get_plan_prewarm),
+):
+    try:
+        application = ApplicationService(db).apply(candidate, job_id, resume)
+    except JobNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    except AlreadyApplied:
+        raise HTTPException(status.HTTP_409_CONFLICT, "You already applied to this job")
+    except InvalidResume as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+    background.add_task(prewarm, application.id)
+    return application
+
+@router.get("/applications/mine", response_model=list[ApplicationResponse])
+def my_applications(
+    candidate: User = Depends(require_role(UserRole.candidate)),
+    db: Session = Depends(get_db),
+):
+    return ApplicationService(db).list_mine(candidate)
+
+
+@router.get("/jobs/{job_id}/applications", response_model=list[ApplicantResponse])
+def job_applications(
+    job_id: uuid.UUID,
+    employer: User = Depends(require_role(UserRole.employer)),
+    db: Session = Depends(get_db),
+):
+    try:
+        rows = ApplicationService(db).list_for_job(job_id, employer)
+        return [
+            ApplicantResponse(
+                **ApplicationResponse.model_validate(a).model_dump(),
+                candidate_email=email,
+            )
+            for a, email in rows
+        ]
+    except JobNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    except NotJobOwner:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not own this job")
+
+
+
+@router.post(
+    "/applications/{application_id}/interview-token",
+    response_model=InterviewTokenResponse,
+)
+def interview_token(
+    application_id: uuid.UUID,
+    background: BackgroundTasks,
+    candidate: User = Depends(require_role(UserRole.candidate)),
+    db: Session = Depends(get_db),
+    prewarm=Depends(get_plan_prewarm),
+):
+    try:
+        application = ApplicationService(db).get_for_candidate(application_id, candidate)
+    except ApplicationNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
+
+    background.add_task(prewarm, application.id)
+    room = room_name_for(application.id)
+    token = create_room_token(str(candidate.id), candidate.email, room)
+    return InterviewTokenResponse(token=token, url=settings.livekit_url, room=room)===== api/app/services/employer.py
+import uuid
+
+from sqlalchemy.orm import Session
+
+from app.models.application import Application
+from app.models.job import Job
+from app.models.report import InterviewReport
+from app.models.user import User
+from app.repositories.application import ApplicationRepository
+from app.repositories.jobs import JobRepository
+from app.repositories.scoring import ReportRepository, RubricRepository
+from app.repositories.transcript import TranscriptRepository
+from app.schemas.employer import (
+    CandidateRow,
+    ReplayEvidence,
+    ReplayOut,
+    ReplayTurn,
+    RubricOut,
+)
+from app.schemas.scoring import Criterion, Report
+from app.services.scoring import DEFAULT_RUBRIC, merge_turns
+
+
+class NotFound(Exception):
+    """Missing, or not owned by this employer. Both look the same from outside."""
+
+
+class EmployerService:
+    def __init__(self, db: Session):
+        self.applications = ApplicationRepository(db)
+        self.jobs = JobRepository(db)
+        self.transcripts = TranscriptRepository(db)
+        self.reports = ReportRepository(db)
+        self.rubrics = RubricRepository(db)
+
+    def _own_job(self, job_id: uuid.UUID, employer: User) -> Job:
+        job = self.jobs.get_by_id(job_id)
+        if job is None or job.employer_id != employer.id:
+            raise NotFound()
+        return job
+
+    def own_application(self, application_id: uuid.UUID, employer: User) -> Application:
+        application = self.applications.get_by_id(application_id)
+        if application is None:
+            raise NotFound()
+        self._own_job(application.job_id, employer)
+        return application
+
+    def candidates(self, job_id: uuid.UUID, employer: User) -> list[CandidateRow]:
+        self._own_job(job_id, employer)
+        return [
+            CandidateRow(
+                application_id=app.id,
+                candidate_email=user.email,
+                application_status=app.status.value,
+                report_status=report.status if report else None,
+                overall_score=report.overall_score if report else None,
+                recommendation=report.recommendation if report else None,
+            )
+            for app, user, report in self.reports.list_for_job(job_id)
+        ]
+
+    def report(self, application_id: uuid.UUID, employer: User) -> InterviewReport:
+        self.own_application(application_id, employer)
+        row = self.reports.get_by_application(application_id)
+        if row is None:
+            raise NotFound()
+        return row
+
+    def replay(self, application_id: uuid.UUID, employer: User) -> ReplayOut:
+        self.own_application(application_id, employer)
+        entries = self.transcripts.list_by_application(application_id)
+        turns = merge_turns([{"seq": e.seq, "role": e.role, "text": e.text} for e in entries])
+        evidence: list[ReplayEvidence] = []
+        row = self.reports.get_by_application(application_id)
+        if row is not None and row.report:
+            for c in Report.model_validate(row.report).criteria:
+                evidence += [
+                    ReplayEvidence(
+                        criterion_key=c.key, criterion_name=c.name, turn=ev.turn, quote=ev.quote
+                    )
+                    for ev in c.evidence
+                ]
+        return ReplayOut(
+            turns=[ReplayTurn(index=i, **t) for i, t in enumerate(turns)],
+            evidence=evidence,
+        )
+
+    def get_rubric(self, job_id: uuid.UUID, employer: User) -> RubricOut:
+        self._own_job(job_id, employer)
+        row = self.rubrics.get_by_job(job_id)
+        if row is None:
+            return RubricOut(job_id=job_id, is_default=True, criteria=DEFAULT_RUBRIC)
+        return RubricOut(
+            job_id=job_id,
+            is_default=False,
+            criteria=[Criterion.model_validate(c) for c in row.criteria],
+        )
+
+    def set_rubric(
+        self, job_id: uuid.UUID, employer: User, criteria: list[Criterion]
+    ) -> RubricOut:
+        self._own_job(job_id, employer)
+        self.rubrics.upsert(job_id, [c.model_dump(mode="json") for c in criteria])
+        return RubricOut(job_id=job_id, is_default=False, criteria=criteria)
+===== api/app/services/application.py
+
+import uuid
+
+from fastapi import UploadFile
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.storage import save_resume
+from app.core.parsing import extract_text
+from app.models.application import Application
+from app.models.user import User
+from app.repositories.application import ApplicationRepository
+from app.repositories.jobs import JobRepository
+
+
+class JobNotFound(Exception):
+    pass
+
+
+class AlreadyApplied(Exception):
+    pass
+
+
+class ApplicationNotFound(Exception):
+    pass
+
+
+class NotJobOwner(Exception):
+    pass
+
+
+class ApplicationService:
+    def __init__(self, db: Session):
+        self.db = db
+        self.applications = ApplicationRepository(db)
+        self.jobs = JobRepository(db)
+
+    def apply(self, candidate: User, job_id: uuid.UUID, resume: UploadFile) -> Application:
+        '''
+        checks the job exists and is open, blocks duplicates, saves the PDF, and creates the application 
+        row for the logged-in candidate.
+        '''
+        job = self.jobs.get_by_id(job_id)
+        if job is None or not job.is_active:
+            raise JobNotFound()
+        if self.applications.get_by_job_and_candidate(job_id, candidate.id):
+            raise AlreadyApplied()
+
+        filename = save_resume(resume)
+        text = extract_text(filename)
+        try:
+            return self.applications.create(job_id, candidate.id, filename, text)
+        except IntegrityError:
+            self.db.rollback()
+            raise AlreadyApplied()
+
+    def list_mine(self, candidate: User) -> list[Application]:
+        return self.applications.list_by_candidate(candidate.id)
+
+    def list_for_job(self, job_id: uuid.UUID, employer: User) -> list[Application]:
+        job = self.jobs.get_by_id(job_id)
+        if job is None:
+            raise JobNotFound()
+        if job.employer_id != employer.id:
+            raise NotJobOwner()
+        return self.applications.list_by_job(job_id)
+
+
+    def get_for_candidate(self, application_id: uuid.UUID, candidate: User) -> Application:
+        '''
+        loads an application by id and returns it only if it belongs to the logged-in candidate, 
+        otherwise it raises ApplicationNotFound, so a candidate can never get a token for someone 
+        else's application.
+        
+        '''
+        application = self.applications.get_by_id(application_id)
+        if application is None or application.candidate_id != candidate.id:
+            raise ApplicationNotFound()
+        return application===== api/app/services/scoring_runner.py
+import asyncio
+import logging
+import uuid
+
+from google import genai
+from google.genai import types
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.repositories.application import ApplicationRepository
+from app.repositories.jobs import JobRepository
+from app.repositories.scoring import ReportRepository, RubricRepository
+from app.repositories.transcript import TranscriptRepository
+from app.schemas.scoring import Criterion, ScorerOutput
+from app.services.scoring import DEFAULT_RUBRIC, Generate, merge_turns, score_interview
+
+logger = logging.getLogger("scoring_runner")
+
+MAX_RESUME_CHARS = 4500
+
+
+class GeminiScorerClient:
+    """Adapts the sync Gemini client to the `generate(prompt) -> ScorerOutput` shape."""
+
+    def __init__(self, client=None, model: str | None = None):
+        self.client = client or genai.Client(api_key=settings.google_api_key)
+        self.model = model or settings.scoring_model or settings.plan_model
+
+    async def __call__(self, prompt: str) -> ScorerOutput:
+        return await asyncio.to_thread(self._call, prompt)
+
+    def _call(self, prompt: str) -> ScorerOutput:
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ScorerOutput,
+                temperature=0.0,  # same transcript, similar scores on a re-run
+            ),
+        )
+        return ScorerOutput.model_validate_json(response.text)
+
+
+def rubric_for_job(db: Session, job_id: uuid.UUID) -> list[Criterion]:
+    row = RubricRepository(db).get_by_job(job_id)
+    if row is None:
+        return DEFAULT_RUBRIC
+    return [Criterion.model_validate(c) for c in row.criteria]
+
+
+class ScoringJob:
+    def __init__(self, db: Session, generate: Generate | None = None):
+        self.generate = generate or GeminiScorerClient()
+        self.applications = ApplicationRepository(db)
+        self.jobs = JobRepository(db)
+        self.transcripts = TranscriptRepository(db)
+        self.reports = ReportRepository(db)
+        self.db = db
+
+    async def run(self, application_id: uuid.UUID) -> None:
+        application = self.applications.get_by_id(application_id)
+        if application is None:
+            logger.warning("scoring: application %s not found", application_id)
+            return
+        job = self.jobs.get_by_id(application.job_id)
+        rubric = rubric_for_job(self.db, application.job_id)
+        entries = self.transcripts.list_by_application(application_id)
+        turns = merge_turns(
+            [{"seq": e.seq, "role": e.role, "text": e.text} for e in entries]
+        )
+
+        self.reports.save(application_id, status="pending")
+        context = {
+            "job_title": job.title if job else "",
+            "resume_excerpt": (application.resume_text or "")[:MAX_RESUME_CHARS],
+        }
+        report = await score_interview(turns, self.generate, rubric, context)
+        self.reports.save(
+            application_id,
+            status="done",
+            overall_score=report.overall_score,
+            recommendation=report.recommendation,
+            report=report.model_dump(mode="json"),
+            rubric=[c.model_dump(mode="json") for c in rubric],
+        )
+        logger.info(
+            "scoring: %s done, overall %s, %s",
+            application_id, report.overall_score, report.recommendation,
+        )
+===== api/app/repositories/application.py
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.application import Application, ApplicationStatus
+from app.models.user import User
+
+class ApplicationRepository:
+    """All database access for applications: create, get, list by candidate or job."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self,job_id: uuid.UUID,candidate_id: uuid.UUID,resume_path: str,resume_text: str | None = None,
+    ) -> Application:
+        application = Application(
+            job_id=job_id,
+            candidate_id=candidate_id,
+            resume_path=resume_path,
+            resume_text=resume_text,
+        )
+        self.db.add(application)
+        self.db.commit()
+        self.db.refresh(application)
+        return application
+
+    def get_by_id(self, application_id: uuid.UUID) -> Application | None:
+        return self.db.get(Application, application_id)
+
+    def get_by_job_and_candidate(
+        self, job_id: uuid.UUID, candidate_id: uuid.UUID
+    ) -> Application | None:
+        stmt = select(Application).where(
+            Application.job_id == job_id, Application.candidate_id == candidate_id
+        )
+        return self.db.scalar(stmt)
+
+    def list_by_candidate(self, candidate_id: uuid.UUID) -> list[Application]:
+        stmt = (
+            select(Application)
+            .where(Application.candidate_id == candidate_id)
+            .order_by(Application.created_at.desc())
+        )
+        return list(self.db.scalars(stmt))
+
+    def list_by_job(self, job_id: uuid.UUID) -> list[tuple[Application, str]]:
+        stmt = (
+            select(Application, User.email)
+            .join(User, User.id == Application.candidate_id)
+            .where(Application.job_id == job_id)
+            .order_by(Application.created_at.desc())
+        )
+        return [(a, email) for a, email in self.db.execute(stmt).all()]
+
+    def update_status(self, application: Application, status: ApplicationStatus) -> Application:
+        application.status = status
+        self.db.commit()
+        self.db.refresh(application)
+        return application===== api/app/repositories/scoring.py
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.application import Application
+from app.models.report import InterviewReport
+from app.models.rubric import Rubric
+from app.models.user import User
+
+
+class RubricRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_job(self, job_id: uuid.UUID) -> Rubric | None:
+        return self.db.scalar(select(Rubric).where(Rubric.job_id == job_id))
+
+    def upsert(self, job_id: uuid.UUID, criteria: list[dict]) -> Rubric:
+        row = self.get_by_job(job_id)
+        if row is None:
+            row = Rubric(job_id=job_id, criteria=criteria)
+            self.db.add(row)
+        else:
+            row.criteria = criteria
+        self.db.commit()
+        return row
+
+
+class ReportRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_application(self, application_id: uuid.UUID) -> InterviewReport | None:
+        return self.db.scalar(
+            select(InterviewReport).where(InterviewReport.application_id == application_id)
+        )
+
+    def save(
+        self,
+        application_id: uuid.UUID,
+        *,
+        status: str,
+        overall_score: float | None = None,
+        recommendation: str | None = None,
+        report: dict | None = None,
+        rubric: list | None = None,
+        error: str | None = None,
+    ) -> InterviewReport:
+        """Create or replace the single report row for this application."""
+        row = self.get_by_application(application_id)
+        if row is None:
+            row = InterviewReport(application_id=application_id)
+            self.db.add(row)
+        row.status = status
+        row.overall_score = overall_score
+        row.recommendation = recommendation
+        row.report = report
+        row.rubric = rubric
+        row.error = error
+        self.db.commit()
+        return row
+
+    def list_for_job(
+        self, job_id: uuid.UUID
+    ) -> list[tuple[Application, User, InterviewReport | None]]:
+        """Every application for a job with its candidate and report, best score first."""
+        stmt = (
+            select(Application, User, InterviewReport)
+            .join(User, User.id == Application.candidate_id)
+            .outerjoin(InterviewReport, InterviewReport.application_id == Application.id)
+            .where(Application.job_id == job_id)
+            .order_by(InterviewReport.overall_score.desc().nulls_last(), Application.created_at)
+        )
+        return [tuple(row) for row in self.db.execute(stmt).all()]
+===== api/app/schemas/employer.py
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.scoring import Criterion, Report
+
+
+class CandidateRow(BaseModel):
+    application_id: uuid.UUID
+    candidate_email: str
+    application_status: str
+    report_status: str | None  # None = not scored yet
+    overall_score: float | None
+    recommendation: str | None
+
+
+class ReportOut(BaseModel):
+    application_id: uuid.UUID
+    status: str
+    error: str | None
+    report: Report | None
+    updated_at: datetime
+
+
+class ReplayTurn(BaseModel):
+    index: int
+    role: str
+    text: str
+    seqs: list[int]
+
+
+class ReplayEvidence(BaseModel):
+    criterion_key: str
+    criterion_name: str
+    turn: int
+    quote: str
+
+
+class ReplayOut(BaseModel):
+    turns: list[ReplayTurn]
+    evidence: list[ReplayEvidence]
+
+
+class RubricIn(BaseModel):
+    criteria: list[Criterion] = Field(min_length=1, max_length=8)
+
+    @field_validator("criteria")
+    @classmethod
+    def keys_unique(cls, v: list[Criterion]) -> list[Criterion]:
+        keys = [c.key for c in v]
+        if len(set(keys)) != len(keys):
+            raise ValueError("criterion keys must be unique")
+        return v
+
+
+class RubricOut(BaseModel):
+    job_id: uuid.UUID
+    is_default: bool
+    criteria: list[Criterion]
+===== api/app/schemas/application.py
+
+
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
+from app.models.application import ApplicationStatus
+
+
+class ApplicationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    candidate_id: uuid.UUID
+    status: ApplicationStatus
+    created_at: datetime
+    updated_at: datetime
+
+class ApplicantResponse(ApplicationResponse):
+    candidate_email: str
+    
+
+class InterviewTokenResponse(BaseModel):
+    token: str
+    url: str
+    room: str
+
+
+'''
+What it does ?
+=>ApplicationResponse: what the API returns for an application. It reads straight from the Application object (from_attributes=True).
+=>No resume_path: the server's file path is internal, so it's never sent to the browser. If someone needs to see the résumé, we'll add a download route that checks permissions first.
+'''
+
+
+'''
+Why there is no “create” schema ??
+
+Applying isn't a JSON body. It's a file upload (multipart/form-data): the job id comes from the URL 
+(POST /jobs/{job_id}/apply) and the PDF comes as an uploaded file. The candidate id comes from the token, 
+as with employer_id earlier. FastAPI reads the file directly with UploadFile, so the router will handle 
+it, with no Pydantic schema needed. That's what python-multipart (installed in Step 2) is for.
+
+'''===== api/tests/conftest.py
+import os
+from fastapi.testclient import TestClient
+
+from app.db.session import get_db
+from app.main import app as fastapi_app
+import pytest
+from dotenv import dotenv_values
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.config import ENV_FILE
+from app.db.base import Base
+import app.models  # noqa: F401
+from app.routers.applications import get_plan_prewarm
+from app.routers.employer import get_scoring_enqueue
+
+
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or dotenv_values(ENV_FILE)["TEST_DATABASE_URL"]
+
+
+@pytest.fixture(scope="session")
+def engine():
+    engine = create_engine(TEST_DATABASE_URL)
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    yield engine
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+@pytest.fixture()
+def db(engine):
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = sessionmaker(bind=connection, autoflush=False, expire_on_commit=False)()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+
+@pytest.fixture()
+def client(db):
+    def override_get_db():
+        yield db
+
+    fastapi_app.dependency_overrides[get_db] = override_get_db
+    fastapi_app.dependency_overrides[get_plan_prewarm] = lambda: (lambda application_id: None)
+    fastapi_app.dependency_overrides[get_scoring_enqueue] = lambda: (lambda application_id: None)
+    yield TestClient(fastapi_app)
+    fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def temp_upload_dir(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
+    return tmp_path===== api/tests/test_scoring_flow.py
+import asyncio
+import itertools
+import uuid
+
+import pytest
+
+from app.api.deps import get_current_user
+from app.main import app as fastapi_app
+from app.models.application import Application
+from app.models.job import EmploymentType, Job
+from app.models.report import InterviewReport
+from app.models.transcript import TranscriptEntry
+from app.models.user import User, UserRole
+from app.repositories.scoring import ReportRepository, RubricRepository
+from app.routers.employer import get_scoring_enqueue
+from app.schemas.scoring import Criterion, Evidence, ScorerOutput
+from app.services.scoring import DEFAULT_RUBRIC, merge_turns
+from app.services.scoring_queue import ScoringQueue
+from app.services.scoring_runner import ScoringJob
+from app.config import settings
+
+_n = itertools.count()
+
+
+def make_user(db, role):
+    user = User(email=f"user{next(_n)}@example.com", hashed_password="x", role=role)
+    db.add(user)
+    db.flush()
+    return user
+
+
+def make_job(db, employer):
+    job = Job(
+        employer_id=employer.id, title="Backend Engineer", description="APIs",
+        employment_type=EmploymentType.full_time,
+    )
+    db.add(job)
+    db.flush()
+    return job
+
+
+def make_application(db, job, candidate, resume="Built CloudGuard at WESEE"):
+    app = Application(
+        job_id=job.id, candidate_id=candidate.id, resume_path="r.pdf", resume_text=resume
+    )
+    db.add(app)
+    db.flush()
+    return app
+
+
+def add_transcript(db, application, pairs):
+    db.add_all(
+        TranscriptEntry(application_id=application.id, seq=i, role=r, text=t)
+        for i, (r, t) in enumerate(pairs)
+    )
+    db.flush()
+
+
+def login_as(user):
+    fastapi_app.dependency_overrides[get_current_user] = lambda: user
+
+
+def save_report(db, application, score, recommendation="maybe", evidence=None):
+    ev = evidence or [Evidence(turn=1, quote="I used the watchdog library")]
+    report = {
+        "overall_score": score, "recommendation": recommendation, "advice_note": "advice",
+        "coverage": 1.0, "strengths": [], "concerns": [],
+        "criteria": [{
+            "key": "technical_depth", "name": "Technical depth", "weight": 1.0,
+            "status": "ok", "score": 4, "reason": "Clear.",
+            "evidence": [e.model_dump() for e in ev],
+        }],
+    }
+    ReportRepository(db).save(
+        application.id, status="done", overall_score=score,
+        recommendation=recommendation, report=report,
+    )
+
+
+PAIRS = [
+    ("interviewer", "How did you build the folder monitor?"),
+    ("candidate", "I used the watchdog library"),
+    ("candidate", "and an event driven design with a timer for deletion."),
+    ("interviewer", "How do you avoid blocking the loop?"),
+    ("candidate", "I move CPU heavy work to a thread pool executor " + "word " * 30),
+]
+
+
+@pytest.fixture()
+def world(db):
+    employer = make_user(db, UserRole.employer)
+    other = make_user(db, UserRole.employer)
+    candidate = make_user(db, UserRole.candidate)
+    job = make_job(db, employer)
+    application = make_application(db, job, candidate)
+    return type("W", (), dict(employer=employer, other=other, candidate=candidate,
+                              job=job, application=application))
+
+
+# ---------- ownership: an employer sees only their own jobs ----------
+
+def test_other_employer_gets_404_everywhere(client, db, world):
+    save_report(db, world.application, 4.0)
+    login_as(world.other)
+    j, a = world.job.id, world.application.id
+    fastapi_app.dependency_overrides[get_scoring_enqueue] = lambda: (lambda _id: None)
+    assert client.get(f"/employer/jobs/{j}/candidates").status_code == 404
+    assert client.get(f"/employer/jobs/{j}/rubric").status_code == 404
+    body = {"criteria": [c.model_dump(mode="json") for c in DEFAULT_RUBRIC]}
+    assert client.put(f"/employer/jobs/{j}/rubric", json=body).status_code == 404
+    assert client.get(f"/employer/applications/{a}/report").status_code == 404
+    assert client.get(f"/employer/applications/{a}/replay").status_code == 404
+    assert client.post(f"/employer/applications/{a}/rescore").status_code == 404
+
+
+def test_owner_can_read(client, db, world):
+    save_report(db, world.application, 4.0)
+    login_as(world.employer)
+    assert client.get(f"/employer/jobs/{world.job.id}/candidates").status_code == 200
+    assert client.get(f"/employer/applications/{world.application.id}/report").status_code == 200
+
+
+def test_candidate_role_is_forbidden(client, world):
+    login_as(world.candidate)
+    assert client.get(f"/employer/jobs/{world.job.id}/candidates").status_code == 403
+
+
+def test_unknown_ids_are_404(client, world):
+    login_as(world.employer)
+    assert client.get(f"/employer/jobs/{uuid.uuid4()}/candidates").status_code == 404
+    assert client.get(f"/employer/applications/{uuid.uuid4()}/report").status_code == 404
+
+
+# ---------- ranking and report ----------
+
+def test_candidates_ranked_best_first_unscored_last(client, db, world):
+    best = make_application(db, world.job, make_user(db, UserRole.candidate))
+    mid = make_application(db, world.job, make_user(db, UserRole.candidate))
+    save_report(db, best, 4.6, "hire")
+    save_report(db, mid, 3.1, "maybe")
+    save_report(db, world.application, 1.9, "no_hire")
+    unscored = make_application(db, world.job, make_user(db, UserRole.candidate))
+    login_as(world.employer)
+
+    rows = client.get(f"/employer/jobs/{world.job.id}/candidates").json()
+    assert [r["application_id"] for r in rows] == [
+        str(best.id), str(mid.id), str(world.application.id), str(unscored.id)
+    ]
+    assert rows[0]["recommendation"] == "hire" and rows[-1]["report_status"] is None
+
+
+def test_report_endpoint_returns_stored_report(client, db, world):
+    save_report(db, world.application, 4.0, "hire")
+    login_as(world.employer)
+    data = client.get(f"/employer/applications/{world.application.id}/report").json()
+    assert data["status"] == "done" and data["report"]["overall_score"] == 4.0
+    assert data["report"]["criteria"][0]["evidence"][0]["turn"] == 1
+
+
+def test_report_404_before_scoring(client, world):
+    login_as(world.employer)
+    assert client.get(f"/employer/applications/{world.application.id}/report").status_code == 404
+
+
+# ---------- replay ----------
+
+def test_replay_merges_fragments_and_lists_evidence(client, db, world):
+    add_transcript(db, world.application, PAIRS)
+    save_report(db, world.application, 4.0)
+    login_as(world.employer)
+    data = client.get(f"/employer/applications/{world.application.id}/replay").json()
+    assert [t["role"] for t in data["turns"]] == [
+        "interviewer", "candidate", "interviewer", "candidate"
+    ]
+    assert data["turns"][1]["seqs"] == [1, 2]
+    assert "event driven design" in data["turns"][1]["text"]
+    assert data["evidence"][0]["turn"] == 1
+
+
+# ---------- rubric ----------
+
+def test_rubric_default_then_custom(client, world):
+    login_as(world.employer)
+    url = f"/employer/jobs/{world.job.id}/rubric"
+    first = client.get(url).json()
+    assert first["is_default"] is True and len(first["criteria"]) == len(DEFAULT_RUBRIC)
+
+    one = DEFAULT_RUBRIC[0].model_dump(mode="json")
+    assert client.put(url, json={"criteria": [one]}).status_code == 200
+    second = client.get(url).json()
+    assert second["is_default"] is False and len(second["criteria"]) == 1
+    assert second["criteria"][0]["levels"]["5"]
+
+
+def test_rubric_validation(client, world):
+    login_as(world.employer)
+    url = f"/employer/jobs/{world.job.id}/rubric"
+    one = DEFAULT_RUBRIC[0].model_dump(mode="json")
+    assert client.put(url, json={"criteria": []}).status_code == 422
+    assert client.put(url, json={"criteria": [one, one]}).status_code == 422
+    bad = {**one, "levels": {"1": "only one level"}}
+    assert client.put(url, json={"criteria": [bad]}).status_code == 422
+
+
+# ---------- trigger: the interview ending queues scoring ----------
+
+def test_transcript_save_queues_scoring_only_when_ended(client, world):
+    queued = []
+    fastapi_app.dependency_overrides[get_scoring_enqueue] = lambda: queued.append
+    url = f"/internal/applications/{world.application.id}/transcript"
+    headers = {"X-Internal-Key": settings.internal_api_key}
+    entries = [{"role": "candidate", "text": "hello there"}]
+
+    assert client.post(url, json={"entries": entries}, headers=headers).status_code == 201
+    assert queued == []
+    assert client.post(url, json={"entries": entries, "ended": True}, headers=headers).status_code == 201
+    assert queued == [str(world.application.id)]
+
+
+def test_queue_failure_does_not_lose_the_transcript(client, db, world):
+    def broken(_id):
+        raise RuntimeError("redis down")
+
+    fastapi_app.dependency_overrides[get_scoring_enqueue] = lambda: broken
+    url = f"/internal/applications/{world.application.id}/transcript"
+    res = client.post(
+        url, headers={"X-Internal-Key": settings.internal_api_key},
+        json={"entries": [{"role": "candidate", "text": "hello there"}], "ended": True},
+    )
+    assert res.status_code == 201 and res.json()["saved"] == 1
+
+
+def test_rescore_endpoint_queues_job(client, world):
+    queued = []
+    fastapi_app.dependency_overrides[get_scoring_enqueue] = lambda: queued.append
+    login_as(world.employer)
+    res = client.post(f"/employer/applications/{world.application.id}/rescore")
+    assert res.status_code == 202 and queued == [str(world.application.id)]
+
+
+# ---------- the scoring job ----------
+
+def good_generate(quote="I used the watchdog library and an event driven design"):
+    seen = []
+
+    async def generate(prompt):
+        seen.append(prompt)
+        return ScorerOutput(
+            score=4, reason="Clear explanation with a concrete mechanism.",
+            evidence=[Evidence(turn=1, quote=quote)],
+        )
+
+    generate.seen = seen
+    return generate
+
+
+def test_job_scores_and_stores_report(db, world):
+    add_transcript(db, world.application, PAIRS)
+    gen = good_generate()  # quote spans two STT fragments, so it needs the merge
+    asyncio.run(ScoringJob(db, gen).run(world.application.id))
+
+    row = ReportRepository(db).get_by_application(world.application.id)
+    assert row.status == "done" and row.overall_score == 4.0
+    assert row.recommendation == "hire"
+    assert len(row.report["criteria"]) == len(DEFAULT_RUBRIC)
+    assert all(c["status"] == "ok" for c in row.report["criteria"])
+    assert "Built CloudGuard" in gen.seen[0] and "Backend Engineer" in gen.seen[0]
+
+
+def test_job_rerun_replaces_the_single_report(db, world):
+    add_transcript(db, world.application, PAIRS)
+    asyncio.run(ScoringJob(db, good_generate()).run(world.application.id))
+    asyncio.run(ScoringJob(db, good_generate()).run(world.application.id))
+    count = db.query(InterviewReport).filter_by(application_id=world.application.id).count()
+    assert count == 1
+
+
+def test_job_uses_the_jobs_custom_rubric(db, world):
+    add_transcript(db, world.application, PAIRS)
+    one = Criterion.model_validate(DEFAULT_RUBRIC[2].model_dump(mode="json"))
+    RubricRepository(db).upsert(world.job.id, [one.model_dump(mode="json")])
+    asyncio.run(ScoringJob(db, good_generate()).run(world.application.id))
+    row = ReportRepository(db).get_by_application(world.application.id)
+    assert [c["key"] for c in row.report["criteria"]] == [one.key]
+    assert [c["key"] for c in row.rubric] == [one.key]
+
+
+def test_job_fabricated_quotes_end_unverified_not_scored(db, world):
+    add_transcript(db, world.application, PAIRS)
+    gen = good_generate(quote="I rewrote the Linux kernel scheduler myself")
+    asyncio.run(ScoringJob(db, gen).run(world.application.id))
+    row = ReportRepository(db).get_by_application(world.application.id)
+    assert row.status == "done" and row.overall_score is None
+    assert row.recommendation == "insufficient_data"
+    assert all(c["status"] == "unverified" for c in row.report["criteria"])
+
+
+def test_job_with_empty_transcript_is_insufficient_data(db, world):
+    gen = good_generate()
+    asyncio.run(ScoringJob(db, gen).run(world.application.id))
+    row = ReportRepository(db).get_by_application(world.application.id)
+    assert row.recommendation == "insufficient_data" and gen.seen == []
+
+
+def test_job_for_missing_application_does_nothing(db):
+    asyncio.run(ScoringJob(db, good_generate()).run(uuid.uuid4()))
+
+
+# ---------- merge_turns ----------
+
+def test_merge_turns_joins_same_speaker_and_skips_blank():
+    turns = merge_turns([
+        {"seq": 0, "role": "interviewer", "text": "Q one?"},
+        {"seq": 1, "role": "candidate", "text": "part a"},
+        {"seq": 2, "role": "candidate", "text": "  "},
+        {"seq": 3, "role": "candidate", "text": "part b"},
+    ])
+    assert [t["role"] for t in turns] == ["interviewer", "candidate"]
+    assert turns[1]["text"] == "part a part b" and turns[1]["seqs"] == [1, 3]
+
+
+# ---------- the Redis queue ----------
+
+@pytest.fixture()
+def queue():
+    import fakeredis
+    return ScoringQueue(fakeredis.FakeRedis(decode_responses=True))
+
+
+def test_queue_is_fifo_and_deduplicated(queue):
+    assert queue.enqueue("a") is True
+    assert queue.enqueue("a") is False
+    queue.enqueue("b")
+    assert queue.reserve(timeout=1) == "a"
+    assert queue.reserve(timeout=1) == "b"
+    assert queue.reserve(timeout=1) is None
+
+
+def test_ack_clears_processing_and_allows_requeue(queue):
+    queue.enqueue("a")
+    queue.reserve(timeout=1)
+    queue.ack("a")
+    assert queue.r.llen("scoring:processing") == 0
+    assert queue.enqueue("a") is True
+
+
+def test_unfinished_jobs_return_to_the_queue_after_a_crash(queue):
+    queue.enqueue("a")
+    queue.enqueue("b")
+    queue.reserve(timeout=1)  # worker takes "a", then dies without ack
+    assert queue.requeue_stale() == 1
+    assert queue.reserve(timeout=1) == "a"
+===== api/requirements.txt
+fastapi
+uvicorn[standard]
+pydantic-settings
+sqlalchemy
+psycopg[binary]
+redis
+alembic 
+pytest
+PyJWT
+pwdlib[argon2]
+email-validator
+python-multipart
+pypdf
+livekit-api
+google-genai         2.34.0
+===== docker-compose.yml
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  livekit:
+    image: livekit/livekit-server
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+
+volumes:
+  pgdata:===== web/lib/api.ts
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+export const getToken = () =>
+  typeof window === "undefined" ? null : localStorage.getItem("token");
+export const setToken = (t: string) => localStorage.setItem("token", t);
+export const clearToken = () => localStorage.removeItem("token");
+
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (options.body && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const detail = typeof body.detail === "string" ? body.detail : "Request failed";
+    throw new Error(detail);
+  }
+  return res.json();
+}===== web/lib/types.ts
+export type Role = "candidate" | "employer";
+export type User = { id: string; email: string; role: Role };
+export type Job = {
+  id: string;
+  employer_id: string;
+  title: string;
+  description: string;
+  location: string | null;
+  employment_type: "full_time" | "part_time" | "contract";
+  is_active: boolean;
+};
+
+export type Application = {
+  id: string;
+  job_id: string;
+  candidate_id: string;
+  candidate_email: string
+  status: string;
+  created_at: string;
+};
+
+export type CandidateRow = {
+  application_id: string;
+  candidate_email: string;
+  application_status: string;
+  report_status: string | null;
+  overall_score: number | null;
+  recommendation: string | null;
+};
+export type Evidence = { turn: number; quote: string };
+export type CriterionResult = {
+  key: string; name: string; weight: number;
+  status: "ok" | "unverified" | "failed";
+  score: number | null; reason: string; evidence: Evidence[];
+};
+export type Report = {
+  overall_score: number | null;
+  recommendation: "hire" | "maybe" | "no_hire" | "insufficient_data";
+  advice_note: string; coverage: number;
+  criteria: CriterionResult[]; strengths: string[]; concerns: string[];
+};
+export type ReportOut = {
+  application_id: string; status: string; error: string | null;
+  report: Report | null; updated_at: string;
+};
+export type Replay = {
+  turns: { index: number; role: string; text: string; seqs: number[] }[];
+  evidence: { criterion_key: string; criterion_name: string; turn: number; quote: string }[];
+};===== web/lib/auth.ts
+"use client";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { api, clearToken, getToken, setToken } from "./api";
+import type { Role, User } from "./types";
+
+export async function login(email: string, password: string): Promise<User> {
+  const res = await api<{ access_token: string }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  setToken(res.access_token);
+  return api<User>("/auth/me");
+}
+
+export const homeFor = (role: Role) => (role === "employer" ? "/employer" : "/jobs");
+
+export function useUser(requiredRole?: Role) {
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (!getToken()) {
+      router.replace("/login");
+      return;
+    }
+    api<User>("/auth/me")
+      .then((u) => {
+        if (requiredRole && u.role !== requiredRole) router.replace(homeFor(u.role));
+        else setUser(u);
+      })
+      .catch(() => {
+        clearToken();
+        router.replace("/login");
+      });
+  }, [router, requiredRole]);
+
+  return user;
+}===== web/components/Nav.tsx
+"use client";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { clearToken } from "@/lib/api";
+import type { User } from "@/lib/types";
+
+export default function Nav({ user }: { user: User }) {
+  const router = useRouter();
+  return (
+    <nav className="flex items-center gap-4 border-b p-4 text-sm">
+      <Link href="/jobs">Jobs</Link>
+      {user.role === "candidate" && <Link href="/applications">My applications</Link>}
+      {user.role === "employer" && <Link href="/employer">My jobs</Link>}
+      <span className="ml-auto text-gray-500">
+        {user.email} ({user.role})
+      </span>
+      <button
+        className="underline"
+        onClick={() => {
+          clearToken();
+          router.replace("/login");
+        }}
+      >
+        Log out
+      </button>
+    </nav>
+  );
+}===== web/app/employer/page.tsx
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import Nav from "@/components/Nav";
+import { api } from "@/lib/api";
+import { useUser } from "@/lib/auth";
+import type { CandidateRow, Job } from "@/lib/types";
+
+export default function Employer() {
+  const user = useUser("employer");
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [apps, setApps] = useState<Record<string, CandidateRow[]>>({});
+  const [form, setForm] = useState({
+    title: "", description: "", location: "", employment_type: "full_time",
+  });
+  const [error, setError] = useState("");
+
+  const load = useCallback(
+    () => api<Job[]>("/jobs/mine").then(setJobs).catch((e) => setError(e.message)),
+    []
+  );
+  useEffect(() => {
+    if (user) load();
+  }, [user, load]);
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      await api("/jobs", {
+        method: "POST",
+        body: JSON.stringify({ ...form, location: form.location || null }),
+      });
+      setForm({ title: "", description: "", location: "", employment_type: "full_time" });
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function toggle(job: Job) {
+    if (job.is_active) await api(`/jobs/${job.id}`, { method: "DELETE" });
+    else await api(`/jobs/${job.id}`, { method: "PUT", body: JSON.stringify({ is_active: true }) });
+    load();
+  }
+
+  async function showApps(jobId: string) {
+    const list = await api<CandidateRow[]>(`/employer/jobs/${jobId}/candidates`);
+    setApps((prev) => ({ ...prev, [jobId]: list }));
+  }
+
+  if (!user) return null;
+  return (
+    <>
+      <Nav user={user} />
+      <main className="mx-auto max-w-2xl p-4">
+        <h1 className="mb-4 text-2xl font-semibold">Post a job</h1>
+        <form onSubmit={create} className="mb-8 flex flex-col gap-3">
+          <input className="rounded border p-2" placeholder="Title" required minLength={3}
+            value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <textarea className="rounded border p-2" placeholder="Description (min 10 chars)" required minLength={10}
+            value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          <input className="rounded border p-2" placeholder="Location (optional)"
+            value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+          <select className="rounded border p-2" value={form.employment_type}
+            onChange={(e) => setForm({ ...form, employment_type: e.target.value })}>
+            <option value="full_time">Full time</option>
+            <option value="part_time">Part time</option>
+            <option value="contract">Contract</option>
+          </select>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <button className="rounded bg-black p-2 text-white">Create job</button>
+        </form>
+
+        <h2 className="mb-3 text-xl font-semibold">My jobs</h2>
+        <ul className="flex flex-col gap-3">
+          {jobs.map((j) => (
+            <li key={j.id} className="rounded border p-3">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">
+                  {j.title} {!j.is_active && <em className="text-sm text-gray-500">(closed)</em>}
+                </span>
+                <span className="flex gap-3 text-sm">
+                  <button className="underline" onClick={() => showApps(j.id)}>Applicants</button>
+                  <button className="underline" onClick={() => toggle(j)}>
+                    {j.is_active ? "Close" : "Reopen"}
+                  </button>
+                </span>
+              </div>
+              {apps[j.id] && (
+                <ul className="mt-2 border-t pt-2 text-sm">
+                  {apps[j.id].length === 0 && <li>No applicants yet.</li>}
+                  {apps[j.id].map((a) => (
+                    <li key={a.application_id} className="flex justify-between py-1">
+                      <span>{a.candidate_email} · {a.report_status ?? "not scored"}</span>
+                      <span>
+                        {a.overall_score ?? "–"} · {a.recommendation ?? "–"}{" "}
+                        <Link className="underline" href={`/employer/applications/${a.application_id}`}>
+                          View
+                        </Link>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
+        </ul>
+      </main>
+    </>
+  );
+}
+===== web/app/applications/page.tsx
+"use client";
+import { useEffect, useState } from "react";
+import Nav from "@/components/Nav";
+import { api } from "@/lib/api";
+import { useUser } from "@/lib/auth";
+import type { Application, Job } from "@/lib/types";
+import Link from "next/link";
+
+export default function Applications() {
+  const user = useUser("candidate");
+  const [apps, setApps] = useState<Application[]>([]);
+  const [titles, setTitles] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([api<Application[]>("/applications/mine"), api<Job[]>("/jobs")]).then(
+      ([a, jobs]) => {
+        setApps(a);
+        setTitles(Object.fromEntries(jobs.map((j) => [j.id, j.title])));
+      }
+    );
+  }, [user]);
+
+  if (!user) return null;
+  return (
+    <>
+      <Nav user={user} />
+      <main className="mx-auto max-w-2xl p-4">
+        <h1 className="mb-4 text-2xl font-semibold">My applications</h1>
+        {apps.length === 0 && <p>You haven't applied to anything yet.</p>}
+        <ul className="flex flex-col gap-3">
+          {apps.map((a) => (
+              <li key={a.id} className="flex items-center justify-between rounded border p-3">
+                <span>{titles[a.job_id] ?? `Job ${a.job_id.slice(0, 8)} (closed)`}</span>
+                <span className="flex items-center gap-4 text-sm text-gray-600">
+                  {a.status} · {new Date(a.created_at).toLocaleDateString()}
+                  <Link
+                    className="rounded bg-black px-3 py-1 text-white"
+                    href={`/interview/${a.id}`}
+                  >
+                    Start interview
+                  </Link>
+                </span>
+              </li>
+          ))}
+        </ul>
+      </main>
+    </>
+  );
+}===== web/package.json
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "livekit-client": "^2.23.0",
+    "next": "16.4.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+===== alembic heads
+ffd70758cc59 (head)
