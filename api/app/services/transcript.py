@@ -10,13 +10,15 @@ from app.repositories.jobs import JobRepository
 from app.repositories.transcript import TranscriptRepository
 from app.schemas.transcript import TranscriptSave
 from app.services.application import ApplicationNotFound
+from app.services.status_machine import ApplicationStatusService
 
 class TranscriptService:
     def __init__(self, db: Session):
         self.applications = ApplicationRepository(db)
         self.jobs = JobRepository(db)
         self.transcripts = TranscriptRepository(db)
-
+        self.db = db
+        
     def save(self, application_id: uuid.UUID, data: TranscriptSave) -> int:
         application = self.applications.get_by_id(application_id)
         if application is None:
@@ -26,8 +28,8 @@ class TranscriptService:
         self.transcripts.replace_for_application(application_id, entries)
 
         spoke = any(role == "candidate" for role, _ in entries)
-        if spoke and application.status == ApplicationStatus.submitted:
-            self.applications.update_status(application, ApplicationStatus.interviewed)
+        if spoke:
+            ApplicationStatusService(self.db).system_advance(application.id, ApplicationStatus.interviewed)
         return len(entries)
 
     def read(self, application_id: uuid.UUID, user: User) -> list[TranscriptEntry]:

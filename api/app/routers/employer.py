@@ -14,8 +14,10 @@ from app.schemas.employer import (
     RubricIn,
     RubricOut,
     MatchRow,
-    MustHavesIn
+    MustHavesIn,
+    StatusEventOut
 )
+
 from app.schemas.scoring import Report
 from app.services.employer import EmployerService, NotFound
 from app.services.scoring_queue import ScoringQueue
@@ -146,6 +148,13 @@ def put_must_haves(
 ):
     try:
         return MustHavesIn(must_haves=MatchingService(db).set_must_haves(job_id, user, data.must_haves))
+    except NotFound:
+        raise not_found()
+
+@router.get("/applications/{application_id}/history", response_model=list[StatusEventOut])
+def history(application_id: uuid.UUID, user: User = Depends(employer_only), db: Session = Depends(get_db)):
+    try:
+        return EmployerService(db).history(application_id, user)
     except NotFound:
         raise not_found()
 

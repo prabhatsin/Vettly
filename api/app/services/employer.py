@@ -10,6 +10,7 @@ from app.repositories.application import ApplicationRepository
 from app.repositories.jobs import JobRepository
 from app.repositories.scoring import ReportRepository, RubricRepository
 from app.repositories.transcript import TranscriptRepository
+
 from app.schemas.employer import (
     CandidateRow,
     ReplayEvidence,
@@ -20,6 +21,7 @@ from app.schemas.employer import (
 from app.schemas.scoring import Criterion, Report
 from app.services.scoring import DEFAULT_RUBRIC, merge_turns
 
+from app.repositories.status_event import StatusEventRepository
 
 class NotFound(Exception):
     """Missing, or not owned by this employer. Both look the same from outside."""
@@ -32,6 +34,7 @@ class EmployerService:
         self.transcripts = TranscriptRepository(db)
         self.reports = ReportRepository(db)
         self.rubrics = RubricRepository(db)
+        self.events = StatusEventRepository(db)
 
     def _own_job(self, job_id: uuid.UUID, employer: User) -> Job:
         job = self.jobs.get_by_id(job_id)
@@ -103,3 +106,8 @@ class EmployerService:
         self._own_job(job_id, employer)
         self.rubrics.upsert(job_id, [c.model_dump(mode="json") for c in criteria])
         return RubricOut(job_id=job_id, is_default=False, criteria=criteria)
+
+
+    def history(self, application_id: uuid.UUID, employer: User):
+        self.own_application(application_id, employer)
+        return self.events.list_for_application(application_id)

@@ -8,14 +8,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
-
 class ApplicationStatus(str, enum.Enum):
-    submitted = "submitted"
+    applied = "applied"
     interviewed = "interviewed"
+    scored = "scored"
     shortlisted = "shortlisted"
+    offered = "offered"
+    accepted = "accepted"
+    declined = "declined"
     rejected = "rejected"
-    hired = "hired"
-
 
 class Application(Base):
     __tablename__ = "applications"
@@ -29,8 +30,8 @@ class Application(Base):
     resume_embedding: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(
         Enum(ApplicationStatus, name="application_status"),
-        default=ApplicationStatus.submitted,
-        server_default="submitted",
+        default=ApplicationStatus.applied,
+        server_default="applied",
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column( DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

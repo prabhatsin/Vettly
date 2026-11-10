@@ -39,7 +39,7 @@ def test_candidate_applies_201(client, temp_upload_dir):
     assert res.status_code == 201
     body = res.json()
     assert body["job_id"] == job_id
-    assert body["status"] == "submitted"
+    assert body["status"] == "applied"
     assert "resume_path" not in body
     assert len(list(temp_upload_dir.glob("*.pdf"))) == 1
 

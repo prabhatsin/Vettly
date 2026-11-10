@@ -14,6 +14,9 @@ from app.schemas.transcript import TranscriptEntryOut, TranscriptSave
 from app.services.application import ApplicationNotFound
 from app.services.transcript import TranscriptService
 
+# from app.models.application import ApplicationStatus
+# from app.services.status_machine import ApplicationStatusService
+
 logger = logging.getLogger("transcripts")
 router = APIRouter(tags=["transcripts"])
 
@@ -44,11 +47,13 @@ def save_transcript(
 
     # Only a finished interview is scored. A failed queue must not lose the transcript.
     if data.ended:
+        # ApplicationStatusService(db).system_advance(application_id, ApplicationStatus.interviewed)
         try:
             enqueue(str(application_id))
         except Exception:
             logger.exception("could not queue scoring for %s", application_id)
     return {"saved": count}
+
 
 
 @router.get(

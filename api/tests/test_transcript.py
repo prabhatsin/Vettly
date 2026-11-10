@@ -81,12 +81,12 @@ def test_save_marks_application_interviewed(client):
     assert apps[0]["status"] == "interviewed"
 
 
-def test_agent_only_speech_keeps_status_submitted(client):
+def test_agent_only_speech_keeps_status_applied(client):
     _, cand, app_id = setup(client)
     body = {"entries": [{"role": "interviewer", "text": "Hello?"}]}
     save(client, app_id, body=body)
     apps = client.get("/applications/mine", headers=cand).json()
-    assert apps[0]["status"] == "submitted"
+    assert apps[0]["status"] == "applied"
 
 
 def test_owner_employer_can_read(client):

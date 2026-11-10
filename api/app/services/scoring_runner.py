@@ -14,6 +14,9 @@ from app.repositories.transcript import TranscriptRepository
 from app.schemas.scoring import Criterion, ScorerOutput
 from app.services.scoring import DEFAULT_RUBRIC, Generate, merge_turns, score_interview
 
+from app.models.application import ApplicationStatus
+from app.services.status_machine import ApplicationStatusService
+
 logger = logging.getLogger("scoring_runner")
 
 MAX_RESUME_CHARS = 4500
@@ -71,6 +74,7 @@ class ScoringJob:
         )
 
         self.reports.save(application_id, status="pending")
+        ApplicationStatusService(self.db).system_advance(application_id, ApplicationStatus.scored)
         context = {
             "job_title": job.title if job else "",
             "resume_excerpt": (application.resume_text or "")[:MAX_RESUME_CHARS],

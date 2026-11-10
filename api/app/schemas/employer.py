@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.scoring import Criterion, Report
 
@@ -83,3 +83,12 @@ class MustHavesIn(BaseModel):
                 out.append(term)
         return out
 
+class StatusEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    from_status: str
+    to_status: str
+    actor_role: str
+    actor_id: uuid.UUID | None
+    note: str | None
+    created_at: datetime

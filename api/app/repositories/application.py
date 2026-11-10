@@ -53,11 +53,11 @@ class ApplicationRepository:
         )
         return [(a, email) for a, email in self.db.execute(stmt).all()]
 
-    def update_status(self, application: Application, status: ApplicationStatus) -> Application:
-        application.status = status
-        self.db.commit()
-        self.db.refresh(application)
-        return application
+
+
+    def lock(self, application: Application) -> None:
+        """Re-read the row and hold a lock until commit, so two requests can't both move it."""
+        self.db.refresh(application, with_for_update=True)
 
     def set_resume_embedding(self, application: Application, vector: list[float]) -> None:
         application.resume_embedding = vector
