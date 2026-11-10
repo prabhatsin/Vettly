@@ -12,5 +12,5 @@ email-validator
 python-multipart
 pypdf
 livekit-api
-google-genai         2.34.0
+google-genai==2.34.0
 httpx

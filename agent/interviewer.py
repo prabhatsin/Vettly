@@ -16,7 +16,8 @@ from livekit.agents import (
     cli,
     function_tool,
 )
-from livekit.plugins import deepgram, google, silero
+from livekit.plugins import  google, silero
+from livekit.plugins import gnani
 
 from interview_state import InterviewState
 from interview_timer import close_when_quiet, run_timer
@@ -191,9 +192,9 @@ async def entrypoint(ctx: JobContext):
         logger.info("interviewer mode: no-tools fallback")
 
     session = AgentSession[SessionData](
-        stt=deepgram.STT(model="nova-3", language="en"),
+        stt=gnani.STT(language="en-IN"),
         llm=google.LLM(model="gemini-3.5-flash"),
-        tts=deepgram.TTS(model="aura-2-thalia-en"),
+        tts=gnani.TTS(voice="Pranav",synthesize_method="websocket"),
         vad=silero.VAD.load(),
         turn_handling=TurnHandlingOptions(
             endpointing={"mode": "fixed", "min_delay": 0.9, "max_delay": 3.5},

@@ -1,0 +1,6 @@
+api_venv
+__pycache__
+.pytest_cache
+uploads
+tests
+*.pdf

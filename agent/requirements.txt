@@ -1,7 +1,6 @@
 livekit-agents==1.8.10
-livekit-plugins-deepgram==1.8.10
 livekit-plugins-google==1.8.10
 livekit-plugins-silero==1.8.10
 python-dotenv==1.2.4
 aiohttp == 3.14.5
-
+livekit-agents[gnani]==1.8.10
