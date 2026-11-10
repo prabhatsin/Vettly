@@ -58,3 +58,11 @@ def temp_upload_dir(tmp_path, monkeypatch):
 
     monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
     return tmp_path
+
+@pytest.fixture(autouse=True)
+def published(monkeypatch):
+    from app.core import events
+
+    sent = []
+    monkeypatch.setattr(events, "publish", lambda user_id, event: sent.append((str(user_id), event)))
+    return sent

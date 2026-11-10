@@ -15,3 +15,6 @@ from app.models.rubric import Rubric
 from app.models.report import InterviewReport
 from app.models.match import CandidateMatch
 from app.models.status_event import ApplicationStatusEvent
+from app.models.offer import Offer
+from app.models.notification import Notification
+from app.models.payments import Payment

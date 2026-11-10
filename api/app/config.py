@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
     match_interview_weight: float = 0.6
     match_similarity_weight: float = 0.4
-
+    offer_expiry_days: int = 7
+    payment_webhook_secret: str = "dev-webhook-secret"
+    api_base_url: str = "http://localhost:8000"
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
     # extra="ignore": your .env also holds POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB, which this 
     # class doesn’t declare. Without this line, pydantic raises an “extra inputs not permitted” error.

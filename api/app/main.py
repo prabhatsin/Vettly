@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import auth, health, jobs,applications,transcripts,plan,employer
+from app.routers import auth, health, jobs, applications, transcripts, plan, employer, candidate, notifications, webhooks, fake_provider
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 
@@ -20,3 +20,8 @@ app.include_router(transcripts.router)
 
 app.include_router(plan.router)
 app.include_router(employer.router)
+
+app.include_router(candidate.router)
+app.include_router(notifications.router)
+app.include_router(webhooks.router)
+app.include_router(fake_provider.router)
