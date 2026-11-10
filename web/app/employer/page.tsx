@@ -1,14 +1,15 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import Nav from "@/components/Nav";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/auth";
-import type { Application, Job } from "@/lib/types";
+import type { CandidateRow, Job } from "@/lib/types";
 
 export default function Employer() {
   const user = useUser("employer");
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [apps, setApps] = useState<Record<string, Application[]>>({});
+  const [apps, setApps] = useState<Record<string, CandidateRow[]>>({});
   const [form, setForm] = useState({
     title: "", description: "", location: "", employment_type: "full_time",
   });
@@ -44,7 +45,7 @@ export default function Employer() {
   }
 
   async function showApps(jobId: string) {
-    const list = await api<Application[]>(`/jobs/${jobId}/applications`);
+    const list = await api<CandidateRow[]>(`/employer/jobs/${jobId}/candidates`);
     setApps((prev) => ({ ...prev, [jobId]: list }));
   }
 
@@ -90,9 +91,14 @@ export default function Employer() {
                 <ul className="mt-2 border-t pt-2 text-sm">
                   {apps[j.id].length === 0 && <li>No applicants yet.</li>}
                   {apps[j.id].map((a) => (
-                    <li key={a.id}>
-                      Candidate {a.candidate_email} · {a.status} ·{" "}
-                      {new Date(a.created_at).toLocaleDateString()}
+                    <li key={a.application_id} className="flex justify-between py-1">
+                      <span>{a.candidate_email} · {a.report_status ?? "not scored"}</span>
+                      <span>
+                        {a.overall_score ?? "–"} · {a.recommendation ?? "–"}{" "}
+                        <Link className="underline" href={`/employer/applications/${a.application_id}`}>
+                          View
+                        </Link>
+                      </span>
                     </li>
                   ))}
                 </ul>
