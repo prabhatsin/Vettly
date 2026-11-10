@@ -10,3 +10,6 @@ from app.models.application import Application, ApplicationStatus
 from app.models.transcript import TranscriptEntry
 
 from app.models.interview_plan import InterviewPlan
+
+from app.models.rubric import Rubric
+from app.models.report import InterviewReport

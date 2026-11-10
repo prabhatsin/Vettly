@@ -11,7 +11,7 @@ class TranscriptEntryIn(BaseModel):
 
 class TranscriptSave(BaseModel):
     entries: list[TranscriptEntryIn] = Field(max_length=1000)
-
+    ended: bool = False
 
 class TranscriptEntryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

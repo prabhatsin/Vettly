@@ -1,3 +1,4 @@
+import logging
 import secrets
 import uuid
 
@@ -8,10 +9,12 @@ from app.api.deps import get_current_user
 from app.config import settings
 from app.db.session import get_db
 from app.models.user import User
+from app.routers.employer import get_scoring_enqueue
 from app.schemas.transcript import TranscriptEntryOut, TranscriptSave
 from app.services.application import ApplicationNotFound
 from app.services.transcript import TranscriptService
 
+logger = logging.getLogger("transcripts")
 router = APIRouter(tags=["transcripts"])
 
 
@@ -32,11 +35,19 @@ def save_transcript(
     application_id: uuid.UUID,
     data: TranscriptSave,
     db: Session = Depends(get_db),
+    enqueue=Depends(get_scoring_enqueue),
 ):
     try:
         count = TranscriptService(db).save(application_id, data)
     except ApplicationNotFound:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Application not found")
+
+    # Only a finished interview is scored. A failed queue must not lose the transcript.
+    if data.ended:
+        try:
+            enqueue(str(application_id))
+        except Exception:
+            logger.exception("could not queue scoring for %s", application_id)
     return {"saved": count}
 
 

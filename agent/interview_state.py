@@ -7,7 +7,7 @@ CREATE = """
 if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
 redis.call('HSET', KEYS[1], 'current_index', 0, 'followups_used', 0,
            'total_questions', ARGV[1], 'started_at', ARGV[2], 'status', 'active',
-           'awaiting_answer', 0, 'active_seconds', 0, 'wrapup', 0)
+           'awaiting_answer', 0, 'active_seconds', 0, 'wrapup', 0, 'stage', 'screener')
 redis.call('EXPIRE', KEYS[1], ARGV[3])
 return 1
 """
@@ -98,6 +98,7 @@ class InterviewState:
         self.r = client
         self.key = f"interview:{application_id}"
         self.notes_key = f"interview:{application_id}:notes"
+        self.summaries_key = f"interview:{application_id}:summaries"
         self.total = total_questions
         self._create = client.register_script(CREATE)
         self._advance = client.register_script(ADVANCE)
@@ -150,6 +151,7 @@ class InterviewState:
                 keys=[self.key, self.notes_key], args=[note, TTL_SECONDS, expected]
             )
         )
+
     async def try_followup(self, cap: int) -> int:
         """Use one follow-up for the open question, unless the cap is reached."""
         return int(await self._followup(keys=[self.key], args=[cap, TTL_SECONDS]))
@@ -171,6 +173,22 @@ class InterviewState:
         count = await self.r.hincrby(self.key, "followups_used", 1)
         await self.r.expire(self.key, TTL_SECONDS)
         return count
+
+    async def get_stage(self) -> str:
+        """Current interview stage. Defaults to 'screener' for older state without one."""
+        return await self.r.hget(self.key, "stage") or "screener"
+
+    async def set_stage(self, stage: str) -> None:
+        if await self.r.exists(self.key):
+            await self.r.hset(self.key, "stage", stage)
+            await self.r.expire(self.key, TTL_SECONDS)
+
+    async def save_summary(self, stage: str, text: str) -> None:
+        await self.r.hset(self.summaries_key, stage, text)
+        await self.r.expire(self.summaries_key, TTL_SECONDS)
+
+    async def summaries(self) -> dict[str, str]:
+        return await self.r.hgetall(self.summaries_key)
 
     async def end(self) -> None:
         await self.r.hset(self.key, "status", "ended")

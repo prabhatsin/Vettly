@@ -6,6 +6,8 @@ from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
 
 from interview_state import InterviewState
+from session_data import STAGES
+import time
 
 logger = logging.getLogger("interview_tools")
 
@@ -29,6 +31,10 @@ WRAP_UP = (
     "Time is almost up, so do not ask any more questions. Thank the candidate, "
     "then call end_interview with reason 'time_limit'."
 )
+STAGE_DONE = (
+    "This stage's questions are finished. Do not ask anything else. Call stage_done "
+    "with a 2-3 sentence summary of what you learned in this stage."
+)
 
 
 class InterviewTools:
@@ -42,6 +48,9 @@ class InterviewTools:
         wrapup_seconds: float = WRAPUP_SECONDS,
         max_followups: int = MAX_FOLLOWUPS,
         on_closed: Callable[[], None] | None = None,
+        stage: str = "screener",
+        stage_end: int | None = None,
+        min_skip_gap: float = 6.0
     ):
         self.state = state
         self.questions = questions
@@ -49,6 +58,10 @@ class InterviewTools:
         self.wrapup_seconds = wrapup_seconds
         self.max_followups = max_followups
         self.on_closed = on_closed
+        self.stage = stage
+        self.stage_end = stage_end if stage_end is not None else len(questions)
+        self.min_skip_gap = min_skip_gap
+        self._issued_at = float("-inf")
 
     def _time_is_short(self, snap) -> bool:
         return snap.wrapup or snap.active_seconds >= self.limit - self.wrapup_seconds
@@ -56,10 +69,21 @@ class InterviewTools:
     def _question_text(self, idx: int) -> str:
         return (
             f"Question {idx + 1} of {len(self.questions)}: {self.questions[idx]['question']}\n"
+            f"When you save its note, use question_number {idx + 1}.\n"
             "Ask only this question, in your own natural spoken words, then stop and listen."
         )
 
     async def _begin(self) -> str:
+        snap = await self.state.snapshot()
+        if (
+            snap
+            and snap.status == "active"
+            and not snap.awaiting_answer
+            and not snap.all_done
+            and snap.current_index >= self.stage_end
+        ):
+            return STAGE_DONE
+
         idx = await self.state.begin_question()
         if idx == -1:
             return ALL_ASKED
@@ -67,6 +91,8 @@ class InterviewTools:
             raise ToolError(UNAVAILABLE)
         if idx == -3:
             raise ToolError(ENDED)
+
+        self._issued_at = time.monotonic()
         return self._question_text(idx)
 
     async def next_question(self) -> str:
@@ -103,15 +129,23 @@ class InterviewTools:
         if idx == -1:
             snap = await self.state.snapshot()
             if snap and snap.awaiting_answer:
+                open_no = snap.current_index + 1
+                if question_number is not None and question_number != open_no - 1:
+                    return (
+                        "Nothing to record: wrong question_number. Question "
+                        f"{open_no} is the open one. Call record_answer_note again NOW with "
+                        f"question_number={open_no} and the same note. Do not speak to the candidate."
+                    )
                 return (
                     "Nothing to record: that answer was already saved. "
-                    f"Question {snap.current_index + 1} is open. Continue with it, and use "
-                    f"question_number {snap.current_index + 1} when you save its note."
+                    f"Question {open_no} is open. Continue with it, and use "
+                    f"question_number {open_no} when you save its note."
                 )
             return (
                 "Nothing to record: the previous answer was already saved, or no question "
                 "is open. Call next_question to continue."
             )
+
         if idx == -2:
             raise ToolError(UNAVAILABLE)
         if idx == -3:
@@ -176,12 +210,44 @@ class InterviewTools:
             raise ToolError(ENDED)
         if not snap.awaiting_answer:
             return "No question is open, so there is nothing to skip. Call next_question."
+        if time.monotonic() - self._issued_at < self.min_skip_gap:
+              return (
+                  "You have not asked this question yet. Ask it first. Skip it only if "
+                  "the candidate asks to skip after hearing it."
+              )
         return await self.record_answer_note(
             "Candidate chose to skip this question.",
             question_number=snap.current_index + 1,
         )
 
-    async def end_interview(self, reason: str) -> str:
+    async def complete_stage(self, summary: str) -> tuple[str, bool]:
+        """Move to the next stage. Returns (stage_name, advanced).
+        advanced is False when the stage had already moved on (a repeated call).
+        """
+        summary = (summary or "").strip()
+        if len(summary) < 10:
+            raise ToolError("Write a stage summary of at least 10 characters.")
+
+        snap = await self.state.snapshot()
+        if snap is None:
+            raise ToolError(UNAVAILABLE)
+        if snap.status == "ended":
+            raise ToolError(ENDED)
+
+        current = await self.state.get_stage()
+        if current != self.stage:
+            return current, False
+        if self.stage == STAGES[-1]:
+            raise ToolError("This is the last stage. Use end_interview when done.")
+        if snap.awaiting_answer or snap.current_index < self.stage_end:
+            raise ToolError("This stage is not finished. Save the open answer note first.")
+
+        nxt = STAGES[STAGES.index(self.stage) + 1]
+        await self.state.save_summary(self.stage, summary[:600])
+        await self.state.set_stage(nxt)
+        return nxt, True
+
+    async def end_interview(self, reason: str, summary: str = "") -> str:
         snap = await self.state.snapshot()
         if snap is None:
             raise ToolError("Interview state is unavailable. Say a brief goodbye.")
@@ -198,6 +264,8 @@ class InterviewTools:
         if reason == "time_limit" and not self._time_is_short(snap):
             raise ToolError("There is still enough time. Continue with the next question.")
 
+        if summary.strip():
+            await self.state.save_summary(self.stage, summary.strip()[:600])
         await self.state.end()
         if self.on_closed:
             self.on_closed()
@@ -232,7 +300,7 @@ def build_tools(logic: InterviewTools) -> list:
         """
         logger.info("tool: record_answer_note q%s (%d chars)", question_number, len(note or ""))
         return await logic.record_answer_note(note, question_number)
- 
+
     @function_tool()
     async def request_followup(context: RunContext, reason: str) -> str:
         """Ask permission for ONE follow-up when the answer is vague, hedging, very short
@@ -262,6 +330,7 @@ def build_tools(logic: InterviewTools) -> list:
     async def end_interview(
         context: RunContext,
         reason: Literal["completed", "candidate_request", "time_limit"],
+        stage_summary: str = "",
     ) -> str:
         """Close the interview.
 
@@ -271,9 +340,10 @@ def build_tools(logic: InterviewTools) -> list:
 
         Args:
             reason: 'completed', 'candidate_request' or 'time_limit'.
+            stage_summary: 2-3 sentences summarising what you learned in your stage.
         """
         logger.info("tool: end_interview (%s)", reason)
-        return await logic.end_interview(reason)
+        return await logic.end_interview(reason, stage_summary)
 
     return [
         next_question,

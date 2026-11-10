@@ -22,7 +22,7 @@ async def client():
 async def make(client, total=3, on_closed=None):
     state = InterviewState(client, "app-1", total)
     await state.load_or_create()
-    return InterviewTools(state, QUESTIONS[:total], on_closed=on_closed), state
+    return InterviewTools(state, QUESTIONS[:total], on_closed=on_closed,min_skip_gap=0), state
 
 
 async def test_next_question_returns_first_question(client):
@@ -31,7 +31,14 @@ async def test_next_question_returns_first_question(client):
     assert "Plan question number 1" in text
     assert "Question 1 of 3" in text
 
-
+async def test_skip_refused_right_after_question_is_issued(client):
+    state = InterviewState(client, "app-1", 3)
+    await state.load_or_create()
+    tools = InterviewTools(state, QUESTIONS)
+    await tools.next_question()
+    assert "not asked this question yet" in await tools.skip_question()
+    assert await state.notes() == {}
+    
 async def test_next_question_twice_returns_same_question(client):
     tools, _ = await make(client)
     first = await tools.next_question()

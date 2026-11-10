@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import auth, health, jobs,applications,transcripts,plan
+from app.routers import auth, health, jobs,applications,transcripts,plan,employer
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 
@@ -19,3 +19,4 @@ app.include_router(applications.router)
 app.include_router(transcripts.router)
 
 app.include_router(plan.router)
+app.include_router(employer.router)
