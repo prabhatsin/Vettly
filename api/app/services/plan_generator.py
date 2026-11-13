@@ -24,7 +24,6 @@ Rules:
 class PlanGenerationFailed(Exception):
     pass
 
-
 class PlanGenerator:
     def __init__(self, client=None, model: str | None = None):
         self.client = client or genai.Client(api_key=settings.google_api_key)
